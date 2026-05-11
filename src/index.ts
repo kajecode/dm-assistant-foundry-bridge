@@ -106,6 +106,15 @@ Hooks.on("renderSettingsConfig", (_app: unknown, html: unknown) => {
   attachTestConnectionButton(html as HTMLElement, runProbe);
 });
 
+// Foundry re-renders the players list on every join/leave + on
+// activity-tracking toggles, wiping any child elements we added.
+// Re-mount the chip on every render so it survives those refreshes.
+// `mountStatusIndicator` is idempotent (removes existing first) so
+// double-firing is harmless.
+Hooks.on("renderPlayerList", () => {
+  mountStatusIndicator();
+});
+
 // Exported for tests — not part of the public runtime surface.
 export const _internal = {
   runProbe,
