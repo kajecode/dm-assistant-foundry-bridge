@@ -54,46 +54,29 @@ let currentPayload: StatusPayload = { state: "unknown" };
 /**
  * Mount (or re-mount) the chip. Idempotent — if the chip already
  * exists, it's removed before re-creation so re-renders of the
- * players list don't end up with stale + new chips both in the DOM.
+ * players panel don't end up with stale + new chips both in the DOM.
  *
  * Selection order:
- *   1. `#player-list` (the inner `<ol>` Foundry v13 renders inside
- *      the panel) — chip mounts as an `<li>` so it sits alongside
- *      player rows. This is the case we expect in a live world.
- *   2. `#players` (the outer `<aside>`) — chip mounts as a `<div>`
- *      after the `<ol>`. Used when Foundry's internal structure
- *      shifts in a future release.
- *   3. Floating pill on `document.body` — fallback for tests and
+ *   1. `#players` (the panel's outer `<aside>`) — chip mounts as a
+ *      footer `<div>`, clearly separate from any player `<ol>`.
+ *      v13 renders the panel with multiple lists (`players-active`,
+ *      `players-inactive`); appending to the aside puts the chip
+ *      AFTER those lists so a real user logging out doesn't end up
+ *      visually grouped with the bridge chip.
+ *   2. Floating pill on `document.body` — fallback for tests and
  *      pre-`ready` firings where no players panel exists.
  *
  * Logs the chosen mount target at INFO so operators can confirm in
- * devtools that mount actually ran. v0.1.0 smoke surfaced a case
- * where the chip wasn't visible; the log lets us tell "didn't mount"
- * from "mounted but hidden by panel CSS" without a screen share.
+ * devtools that mount actually ran without a screen share.
  */
 export function mountStatusIndicator(): void {
   document.getElementById(EL_ID)?.remove();
-
-  // Prefer the inner ol — that's where player <li> rows live, so an
-  // <li> we append visually sits alongside them and inherits panel
-  // styling. Selector covers Foundry v13's `#player-list` plus a
-  // couple of historical variants for safety.
-  const innerList = document.querySelector<HTMLElement>(
-    "#player-list, #players ol, #players .players-list",
-  );
-  if (innerList) {
-    currentEl = buildChip({ mode: "list-item" });
-    innerList.appendChild(currentEl);
-    log.info("status chip mounted inside player list (li)", innerList.id || innerList.className);
-    applyPayload(currentPayload);
-    return;
-  }
 
   const playersAside = document.querySelector<HTMLElement>("#players");
   if (playersAside) {
     currentEl = buildChip({ mode: "panel-footer" });
     playersAside.appendChild(currentEl);
-    log.info("status chip mounted in #players aside (no inner ol found)");
+    log.info("status chip mounted as footer in #players aside");
     applyPayload(currentPayload);
     return;
   }
@@ -117,21 +100,12 @@ export function getStatus(): StatusPayload {
   return { ...currentPayload };
 }
 
-type ChipMode = "list-item" | "panel-footer" | "fallback-pill";
+type ChipMode = "panel-footer" | "fallback-pill";
 
 function buildChip(opts: { mode: ChipMode }): HTMLElement {
-  // Inside the player list we want a proper <li> so we sit alongside
-  // player rows and inherit the panel's row styling. Elsewhere a
-  // <div> is fine.
-  const tag = opts.mode === "list-item" ? "li" : "div";
-  const root = document.createElement(tag);
+  const root = document.createElement("div");
   root.id = EL_ID;
-  if (opts.mode === "list-item") {
-    // Match Foundry's `<li class="player">` so we pick up the
-    // panel's row padding / hover styling. The `dab-bridge` class
-    // lets us override anything that doesn't fit.
-    root.className = "player dab-bridge";
-  }
+  root.className = "dab-bridge-status";
   if (opts.mode === "fallback-pill") {
     Object.assign(root.style, {
       position:     "fixed",
@@ -145,9 +119,13 @@ function buildChip(opts: { mode: ChipMode }): HTMLElement {
       boxShadow:    "0 1px 3px rgba(0,0,0,0.3)",
     } satisfies Partial<CSSStyleDeclaration>);
   } else {
+    // Footer style: subtle card aligned to the panel's typography,
+    // a thin top border separating us from the player lists above.
     Object.assign(root.style, {
-      padding: "4px 8px",
-      color:   "var(--color-text-primary, #ddd)",
+      padding:     "6px 10px",
+      marginTop:   "4px",
+      color:       "var(--color-text-primary, #ddd)",
+      borderTop:   "1px solid rgba(255, 255, 255, 0.08)",
     } satisfies Partial<CSSStyleDeclaration>);
   }
   Object.assign(root.style, {
@@ -158,7 +136,7 @@ function buildChip(opts: { mode: ChipMode }): HTMLElement {
     fontFamily:  "system-ui, sans-serif",
     cursor:      "default",
     userSelect:  "none",
-    // Prevent Foundry's list CSS from clipping our content if the
+    // Prevent Foundry's panel CSS from clipping our content if the
     // panel is narrow.
     minWidth:    "0",
     overflow:    "visible",
