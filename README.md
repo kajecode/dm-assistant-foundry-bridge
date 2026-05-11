@@ -98,12 +98,22 @@ pnpm dev
 # Run tests
 pnpm test
 
-# Link the dist/ output into your local Foundry data directory:
+# Link the dist/ output into your local Foundry data directory.
+# After `pnpm build`, dist/ contains a complete Foundry-installable
+# layout (module.json + index.js + languages/ + sidecars) — symlink
+# it directly as the module dir:
 ln -s "$(pwd)/dist" ~/Library/Application\ Support/FoundryVTT/Data/modules/dm-assistant-bridge
-# (Foundry on Mac default; adjust for Linux / Windows / Pi)
+# Pi / Linux example:
+#   ln -s "$(pwd)/dist" ~/share/foundrydata/Data/modules/dm-assistant-bridge
 
 # Then enable the module in your dev world.
 ```
+
+Note: only `pnpm build` (or `pnpm dev`) writes `dist/module.json` — the
+`module.json` at the repo root documents the **source** layout
+(`src/index.ts` → `dist/index.js`). The build flattens those paths so
+the install copy says `esmodules: ["index.js"]`, which is what Foundry
+actually loads when `dist/` is the module dir.
 
 ### Project structure
 
