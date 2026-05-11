@@ -38,28 +38,28 @@ describe("statusIndicator — mount target selection", () => {
     document.body.innerHTML = "";
   });
 
-  it("mounts as <li> inside #player-list when v13's full panel is present", () => {
-    buildPlayersPanel({ withInnerList: true });
+  it("mounts as a footer <div> inside #players aside, after any player <ol>s", () => {
+    // Realistic v13 shape: panel has BOTH players-active and
+    // players-inactive lists. Our chip should land AFTER both so it
+    // doesn't get visually grouped with logged-out users.
+    const panel = buildPlayersPanel({ withInnerList: true });
     mountStatusIndicator();
     const el = document.getElementById(EL_ID);
     expect(el).not.toBeNull();
-    // Tag is <li> so it sits as a sibling of player rows.
-    expect(el?.tagName).toBe("LI");
-    // Parent is the inner <ol id="player-list">, not the outer aside.
-    expect(el?.parentElement?.id).toBe("player-list");
-    // Carries the "player" class so it inherits Foundry's row styling.
-    expect(el?.className).toContain("player");
+    expect(el?.tagName).toBe("DIV");
+    expect(el?.parentElement).toBe(panel);
+    // Last child of the aside — sits below the <ol>s.
+    expect(panel.lastElementChild).toBe(el);
     // No fixed positioning — flows with the panel and collapses with it.
     expect(el?.style.position).not.toBe("fixed");
   });
 
-  it("falls back to <div> inside #players aside when no inner list exists", () => {
+  it("mounts as a footer <div> even when the aside has no inner list", () => {
     const panel = buildPlayersPanel({ withInnerList: false });
     mountStatusIndicator();
     const el = document.getElementById(EL_ID);
     expect(el?.tagName).toBe("DIV");
     expect(el?.parentElement).toBe(panel);
-    expect(el?.style.position).not.toBe("fixed");
   });
 
   it("falls back to a fixed-position pill on body when #players is absent", () => {
@@ -83,16 +83,16 @@ describe("statusIndicator — mount target selection", () => {
     expect(document.querySelectorAll(`#${EL_ID}`).length).toBe(1);
   });
 
-  it("re-mounting upgrades the chip when the mount target appears", () => {
+  it("re-mounting upgrades the chip when the panel appears mid-session", () => {
     // First mount: no players panel → fallback pill on body.
     mountStatusIndicator();
     expect(document.getElementById(EL_ID)?.parentElement).toBe(document.body);
     // Panel appears (e.g. Foundry finishes loading) and we re-mount.
-    buildPlayersPanel({ withInnerList: true });
+    const panel = buildPlayersPanel({ withInnerList: true });
     mountStatusIndicator();
     const after = document.getElementById(EL_ID);
-    expect(after?.tagName).toBe("LI");
-    expect(after?.parentElement?.id).toBe("player-list");
+    expect(after?.tagName).toBe("DIV");
+    expect(after?.parentElement).toBe(panel);
     expect(document.querySelectorAll(`#${EL_ID}`).length).toBe(1);
   });
 });
