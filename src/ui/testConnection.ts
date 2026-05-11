@@ -13,7 +13,7 @@ import { log } from "../lib/log.js";
 
 export type ProbeResult =
   | { ok: true;  contractVersion: string; serverVersion: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; hint?: string; origin?: string };
 
 export type ProbeFn = () => Promise<ProbeResult>;
 
@@ -59,11 +59,17 @@ export function attachTestConnectionButton(html: JQueryLike | HTMLElement, probe
   result.className = "dm-assistant-bridge-test-result";
   result.style.cssText = "font-size:12px;";
 
+  const hint = document.createElement("div");
+  hint.className = "dm-assistant-bridge-test-hint";
+  hint.style.cssText = "font-size:12px;color:#bbb;margin-top:4px;white-space:pre-line;display:none;";
+
   button.addEventListener("click", async (e) => {
     e.preventDefault();
     button.disabled = true;
     result.style.color = "";
     result.textContent = "Probing…";
+    hint.style.display = "none";
+    hint.textContent = "";
     try {
       const r = await probe();
       if (r.ok) {
@@ -72,6 +78,10 @@ export function attachTestConnectionButton(html: JQueryLike | HTMLElement, probe
       } else {
         result.style.color = "#a33";
         result.textContent = `✗ ${r.error}`;
+        if (r.hint) {
+          hint.style.display = "block";
+          hint.textContent = r.hint;
+        }
       }
     } finally {
       button.disabled = false;
@@ -87,6 +97,7 @@ export function attachTestConnectionButton(html: JQueryLike | HTMLElement, probe
   // visually adjacent to the input.
   const group = baseUrlInput.closest(".form-group") ?? baseUrlInput.parentElement;
   group?.appendChild(wrapper);
+  group?.appendChild(hint);
 }
 
 function findBaseUrlInput(root: ParentNode): HTMLElement | null {

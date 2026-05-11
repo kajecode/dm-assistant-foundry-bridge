@@ -67,6 +67,46 @@ describe("attachTestConnectionButton", () => {
     });
   });
 
+  it("renders the multi-line hint below the result when the probe returns one", async () => {
+    const root = buildSettingsPanel();
+    const probe: ProbeFn = vi.fn(async () => ({
+      ok:    false as const,
+      error: "Failed to fetch",
+      hint:  "Likely CORS.\nAdd https://fvtt-local.kaje.org to ALLOWED_ORIGINS.",
+    }));
+    attachTestConnectionButton(root, probe);
+    const btn = root.querySelector(".dm-assistant-bridge-test-btn") as HTMLButtonElement;
+    btn.click();
+    await vi.waitFor(() => {
+      const hint = root.querySelector(".dm-assistant-bridge-test-hint") as HTMLElement;
+      expect(hint.style.display).toBe("block");
+      expect(hint.textContent).toContain("ALLOWED_ORIGINS");
+      expect(hint.textContent).toContain("fvtt-local.kaje.org");
+    });
+  });
+
+  it("hides the hint when a subsequent probe succeeds", async () => {
+    const root = buildSettingsPanel();
+    const calls: ProbeFn[] = [
+      vi.fn(async () => ({ ok: false as const, error: "Failed to fetch", hint: "CORS-y stuff" })),
+      vi.fn(async () => ({ ok: true  as const, contractVersion: "0.1.0", serverVersion: "x" })),
+    ];
+    let i = 0;
+    const probe: ProbeFn = () => (calls[i++] as ProbeFn)();
+    attachTestConnectionButton(root, probe);
+    const btn = root.querySelector(".dm-assistant-bridge-test-btn") as HTMLButtonElement;
+    btn.click();
+    await vi.waitFor(() => {
+      const hint = root.querySelector(".dm-assistant-bridge-test-hint") as HTMLElement;
+      expect(hint.style.display).toBe("block");
+    });
+    btn.click();
+    await vi.waitFor(() => {
+      const hint = root.querySelector(".dm-assistant-bridge-test-hint") as HTMLElement;
+      expect(hint.style.display).toBe("none");
+    });
+  });
+
   it("disables the button while a probe is in flight", async () => {
     const root = buildSettingsPanel();
     let resolveFn: (v: { ok: true; contractVersion: string; serverVersion: string }) => void = () => {};

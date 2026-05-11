@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { ApiError, compareSemver, fetchHealth } from "../src/api/client.js";
+import { compareSemver, fetchHealth } from "../src/api/client.js";
 
 describe("compareSemver", () => {
   it("returns 0 for equal versions", () => {
@@ -108,30 +108,38 @@ describe("fetchHealth", () => {
     expect(args.headers["X-API-Key"]).toBeUndefined();
   });
 
-  it("throws ApiError with status on non-2xx response", async () => {
+  it("throws ApiError with kind=http and status on non-2xx response", async () => {
     fetchSpy.mockResolvedValueOnce(new Response("nope", { status: 503 }));
     await expect(fetchHealth({ baseUrl: "http://x" })).rejects.toMatchObject({
       name:   "ApiError",
+      kind:   "http",
       status: 503,
     });
   });
 
-  it("throws ApiError when the response is missing api_contract_version", async () => {
+  it("throws ApiError with kind=shape when the response is missing api_contract_version", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ status: "ok" }), { status: 200 }),
     );
-    await expect(fetchHealth({ baseUrl: "http://x" })).rejects.toThrow(ApiError);
+    await expect(fetchHealth({ baseUrl: "http://x" })).rejects.toMatchObject({
+      name: "ApiError",
+      kind: "shape",
+    });
   });
 
-  it("throws ApiError when baseUrl is empty", async () => {
-    await expect(fetchHealth({ baseUrl: "   " })).rejects.toThrow(/empty/);
+  it("throws ApiError with kind=config when baseUrl is empty", async () => {
+    await expect(fetchHealth({ baseUrl: "   " })).rejects.toMatchObject({
+      name: "ApiError",
+      kind: "config",
+    });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("wraps network errors as ApiError", async () => {
+  it("wraps TypeError (CORS / unreachable / mixed-content) as kind=network", async () => {
     fetchSpy.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     await expect(fetchHealth({ baseUrl: "http://x" })).rejects.toMatchObject({
       name:    "ApiError",
+      kind:    "network",
       message: expect.stringContaining("Failed to fetch"),
     });
   });
