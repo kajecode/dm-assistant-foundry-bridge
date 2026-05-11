@@ -14,10 +14,14 @@ dm-assistant `/foundry/*` endpoint family) via the
 `module.json`. Bumping that field is a breaking change for users running
 older dm-assistant deployments; flag it explicitly in the entry below.
 
+## [0.1.1] — 2026-05-11
 
-## [Unreleased]
+### Changed
 
-(nothing yet)
+- **status indicator:** Mount the connection status chip as a list item inside
+  `#players-active .players-list` instead of as a footer `<div>` appended to
+  the outer `#players` aside. This keeps the chip visually integrated with the
+  Players Online panel, matching the layout pattern used by ItemPiles. (#16)
 
 ## [0.1.0] — 2026-05-11
 
