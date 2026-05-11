@@ -99,6 +99,14 @@ Hooks.once("init", () => {
 Hooks.once("ready", () => {
   log.info("ready — mounting status indicator and running first probe");
   mountStatusIndicator();
+  // Foundry v13's player list renders via ApplicationV2 on a separate
+  // tick. `ready` can fire before `#player-list` exists in the DOM —
+  // re-attempt after a short delay so the chip lands in the right
+  // target even when the panel arrived late. The renderPlayerList /
+  // renderPlayers hooks below handle subsequent re-renders.
+  setTimeout(() => {
+    mountStatusIndicator();
+  }, 500);
   void runProbe();
 });
 
@@ -111,7 +119,14 @@ Hooks.on("renderSettingsConfig", (_app: unknown, html: unknown) => {
 // Re-mount the chip on every render so it survives those refreshes.
 // `mountStatusIndicator` is idempotent (removes existing first) so
 // double-firing is harmless.
+//
+// Hook name flux: v1 fires `renderPlayerList`, v13 ApplicationV2
+// emits `renderPlayers` (deprecated `renderPlayerList` still fires
+// in most builds, but not guaranteed). Listen on both.
 Hooks.on("renderPlayerList", () => {
+  mountStatusIndicator();
+});
+Hooks.on("renderPlayers", () => {
   mountStatusIndicator();
 });
 

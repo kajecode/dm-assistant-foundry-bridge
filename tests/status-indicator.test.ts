@@ -18,11 +18,18 @@ import { mountStatusIndicator, setStatus, _resetForTests } from "../src/ui/statu
 
 const EL_ID = "dm-assistant-bridge-status";
 
-function buildPlayersPanel(): HTMLElement {
-  const el = document.createElement("aside");
-  el.id = "players";
-  document.body.appendChild(el);
-  return el;
+function buildPlayersPanel(opts: { withInnerList?: boolean } = {}): HTMLElement {
+  const aside = document.createElement("aside");
+  aside.id = "players";
+  if (opts.withInnerList ?? true) {
+    // Foundry v13's real DOM shape: <aside id="players"> contains
+    // an <ol id="player-list"> with <li class="player"> rows.
+    const ol = document.createElement("ol");
+    ol.id = "player-list";
+    aside.appendChild(ol);
+  }
+  document.body.appendChild(aside);
+  return aside;
 }
 
 describe("statusIndicator — mount target selection", () => {
@@ -31,14 +38,27 @@ describe("statusIndicator — mount target selection", () => {
     document.body.innerHTML = "";
   });
 
-  it("mounts inside #players panel when present", () => {
-    const panel = buildPlayersPanel();
+  it("mounts as <li> inside #player-list when v13's full panel is present", () => {
+    buildPlayersPanel({ withInnerList: true });
     mountStatusIndicator();
     const el = document.getElementById(EL_ID);
     expect(el).not.toBeNull();
+    // Tag is <li> so it sits as a sibling of player rows.
+    expect(el?.tagName).toBe("LI");
+    // Parent is the inner <ol id="player-list">, not the outer aside.
+    expect(el?.parentElement?.id).toBe("player-list");
+    // Carries the "player" class so it inherits Foundry's row styling.
+    expect(el?.className).toContain("player");
+    // No fixed positioning — flows with the panel and collapses with it.
+    expect(el?.style.position).not.toBe("fixed");
+  });
+
+  it("falls back to <div> inside #players aside when no inner list exists", () => {
+    const panel = buildPlayersPanel({ withInnerList: false });
+    mountStatusIndicator();
+    const el = document.getElementById(EL_ID);
+    expect(el?.tagName).toBe("DIV");
     expect(el?.parentElement).toBe(panel);
-    // No fixed positioning when inside the panel — it inherits the
-    // panel's flow so it collapses with the rest of the player list.
     expect(el?.style.position).not.toBe("fixed");
   });
 
@@ -63,16 +83,16 @@ describe("statusIndicator — mount target selection", () => {
     expect(document.querySelectorAll(`#${EL_ID}`).length).toBe(1);
   });
 
-  it("re-mounting moves the chip when the mount target changes", () => {
+  it("re-mounting upgrades the chip when the mount target appears", () => {
     // First mount: no players panel → fallback pill on body.
     mountStatusIndicator();
-    const before = document.getElementById(EL_ID);
-    expect(before?.parentElement).toBe(document.body);
+    expect(document.getElementById(EL_ID)?.parentElement).toBe(document.body);
     // Panel appears (e.g. Foundry finishes loading) and we re-mount.
-    const panel = buildPlayersPanel();
+    buildPlayersPanel({ withInnerList: true });
     mountStatusIndicator();
     const after = document.getElementById(EL_ID);
-    expect(after?.parentElement).toBe(panel);
+    expect(after?.tagName).toBe("LI");
+    expect(after?.parentElement?.id).toBe("player-list");
     expect(document.querySelectorAll(`#${EL_ID}`).length).toBe(1);
   });
 });
@@ -81,7 +101,7 @@ describe("statusIndicator — visual state", () => {
   beforeEach(() => {
     _resetForTests();
     document.body.innerHTML = "";
-    buildPlayersPanel();   // most tests run with the panel present
+    buildPlayersPanel({ withInnerList: true });   // most tests use v13 shape
   });
 
   function dot(): HTMLElement {
