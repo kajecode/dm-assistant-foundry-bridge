@@ -16,12 +16,24 @@ import { getSetting, registerSettings } from "./settings/register.js";
 import { ApiError, compareSemver, fetchHealth } from "./api/client.js";
 import { mountStatusIndicator, setStatus } from "./ui/statusIndicator.js";
 import { attachTestConnectionButton, type ProbeResult } from "./ui/testConnection.js";
+import { openImportPicker } from "./ui/importPicker.js";
 import { explainError } from "./lib/errorHints.js";
 import { log } from "./lib/log.js";
 
 declare const Hooks: {
   on:   (name: string, fn: (...args: unknown[]) => void) => void;
   once: (name: string, fn: (...args: unknown[]) => void) => void;
+};
+
+declare const game: {
+  modules:     { get: (id: string) => unknown };
+  keybindings: {
+    register: (module: string, action: string, config: Record<string, unknown>) => void;
+  };
+};
+
+declare const KeyboardManager: {
+  MODIFIER_KEYS: { CONTROL: string; SHIFT: string };
 };
 
 /**
@@ -94,6 +106,26 @@ Hooks.once("init", () => {
   registerSettings(() => {
     void runProbe();
   });
+
+  // Ctrl+Shift+D opens the NPC import picker. Modifier names go
+  // through Foundry's KeyboardManager constants so we work on any
+  // host OS (CONTROL maps to ⌘ on Mac automatically).
+  game.keybindings.register(MODULE_ID, "openImportPicker", {
+    name:    "DM-ASSISTANT-BRIDGE.keybindings.openImportPicker.name",
+    hint:    "DM-ASSISTANT-BRIDGE.keybindings.openImportPicker.hint",
+    editable: [{
+      key:       "KeyD",
+      modifiers: [
+        KeyboardManager.MODIFIER_KEYS.CONTROL,
+        KeyboardManager.MODIFIER_KEYS.SHIFT,
+      ],
+    }],
+    onDown: () => {
+      void openImportPicker();
+      return true;
+    },
+    restricted: true,
+  });
 });
 
 Hooks.once("ready", () => {
@@ -128,6 +160,45 @@ Hooks.on("renderPlayerList", () => {
 });
 Hooks.on("renderPlayers", () => {
   mountStatusIndicator();
+});
+
+// Add an "Import from dm-assistant" button to the Actors sidebar tab's
+// header. We hook into Foundry's `getActorDirectoryEntryContext` /
+// `renderActorDirectory` — the latter is simpler + fires on every tab
+// render. We append a button to the directory header.
+Hooks.on("renderActorDirectory", (_app: unknown, html: unknown) => {
+  const root = (html as HTMLElement & { querySelector?: (s: string) => Element | null });
+  // Don't double-attach on re-renders.
+  if (root.querySelector?.(".dab-import-btn")) return;
+  const header = root.querySelector?.(".directory-header .action-buttons")
+              ?? root.querySelector?.(".directory-header")
+              ?? root.querySelector?.("header");
+  if (!header) {
+    log.debug("renderActorDirectory: no header found, skipping import button");
+    return;
+  }
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "dab-import-btn";
+  btn.innerHTML = '<i class="fas fa-download"></i> Import from dm-assistant';
+  btn.style.cssText = "margin: 4px 0; padding: 4px 10px;";
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    void openImportPicker();
+  });
+  header.appendChild(btn);
+});
+
+// Module API exposed under `game.modules.get("dm-assistant-bridge").api`
+// so DMs / future modules can call `importNpc` etc. from console or
+// macros without going through the picker. Wired at `ready` because
+// it depends on `game.modules` being populated.
+Hooks.once("ready", () => {
+  const mod = game.modules.get(MODULE_ID) as { api?: Record<string, unknown> } | undefined;
+  if (mod) {
+    mod.api = { openImportPicker, runProbe };
+    log.info("module API ready: game.modules.get('" + MODULE_ID + "').api");
+  }
 });
 
 // Exported for tests — not part of the public runtime surface.

@@ -24,6 +24,16 @@
       "journalFolder": {
         "name": "Default journal folder",
         "hint": "Foundry folder name where newly-imported journals are placed."
+      },
+      "dataPathPrefix": {
+        "name": "Foundry Data/ upload prefix",
+        "hint": "Subfolder under Foundry's Data/ directory where imported NPC portraits and thumbnails are uploaded. Example: 'dm-assistant' puts files at Data/dm-assistant/<campaign>/npc/<slug>.png."
+      }
+    },
+    "keybindings": {
+      "openImportPicker": {
+        "name": "Open dm-assistant import picker",
+        "hint": "Opens the NPC picker dialog (DM-only)."
       }
     }
   }

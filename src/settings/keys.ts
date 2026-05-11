@@ -15,6 +15,7 @@ export const SETTING = {
   useCampaignCodex: "useCampaignCodex",
   actorFolder:      "actorFolder",
   journalFolder:    "journalFolder",
+  dataPathPrefix:   "dataPathPrefix",
 } as const;
 
 export type SettingKey = (typeof SETTING)[keyof typeof SETTING];

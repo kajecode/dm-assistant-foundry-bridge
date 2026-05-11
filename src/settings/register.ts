@@ -89,6 +89,15 @@ export function registerSettings(onConnChange: OnConnectionSettingChange): void 
     type:    String,
     default: "dm-assistant Imports",
   });
+
+  game.settings.register(MODULE_ID, SETTING.dataPathPrefix, {
+    name:    "DM-ASSISTANT-BRIDGE.settings.dataPathPrefix.name",
+    hint:    "DM-ASSISTANT-BRIDGE.settings.dataPathPrefix.hint",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    default: "dm-assistant",
+  });
 }
 
 /**
