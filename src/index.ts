@@ -32,9 +32,31 @@ declare const game: {
   };
 };
 
-declare const KeyboardManager: {
+/**
+ * Foundry v13 namespaced `KeyboardManager` under
+ * `foundry.helpers.interaction.KeyboardManager`. The legacy global
+ * still works but emits a deprecation warning every time it's read.
+ * Look up the namespaced version first, fall through to the global
+ * for older releases.
+ */
+type KeyboardManagerShape = {
   MODIFIER_KEYS: { CONTROL: string; SHIFT: string };
 };
+
+function resolveKeyboardManager(): KeyboardManagerShape {
+  const g  = globalThis as unknown as {
+    foundry?:         { helpers?: { interaction?: { KeyboardManager?: KeyboardManagerShape } } };
+    KeyboardManager?: KeyboardManagerShape;
+  };
+  const v13 = g.foundry?.helpers?.interaction?.KeyboardManager;
+  if (v13) return v13;
+  if (g.KeyboardManager) return g.KeyboardManager;
+  // Last-resort literals — Foundry's enum values are stable strings
+  // ("Control" / "Shift"). If neither path resolves, the keybind
+  // registration would otherwise crash; surface the deprecation
+  // warning suppression as a string-fallback instead.
+  return { MODIFIER_KEYS: { CONTROL: "Control", SHIFT: "Shift" } };
+}
 
 /**
  * Reads the bridge module's declared minimum API contract version
@@ -110,15 +132,13 @@ Hooks.once("init", () => {
   // Ctrl+Shift+D opens the NPC import picker. Modifier names go
   // through Foundry's KeyboardManager constants so we work on any
   // host OS (CONTROL maps to ⌘ on Mac automatically).
+  const km = resolveKeyboardManager();
   game.keybindings.register(MODULE_ID, "openImportPicker", {
     name:    "DM-ASSISTANT-BRIDGE.keybindings.openImportPicker.name",
     hint:    "DM-ASSISTANT-BRIDGE.keybindings.openImportPicker.hint",
     editable: [{
       key:       "KeyD",
-      modifiers: [
-        KeyboardManager.MODIFIER_KEYS.CONTROL,
-        KeyboardManager.MODIFIER_KEYS.SHIFT,
-      ],
+      modifiers: [km.MODIFIER_KEYS.CONTROL, km.MODIFIER_KEYS.SHIFT],
     }],
     onDown: () => {
       void openImportPicker();
