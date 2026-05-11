@@ -2,10 +2,10 @@
  * DOM-level tests for the bridge connection chip.
  *
  * Two render targets are covered:
- *   1. **#players panel present** — chip mounts inside it (the
- *      common Foundry case). Survives the panel collapsing because
- *      it's part of the same DOM subtree.
- *   2. **No #players panel** — chip falls back to a fixed-position
+ *   1. **#players-active .players-list present** — chip mounts inside it
+ *      as a list item (the common Foundry case). Survives the panel
+ *      collapsing because it's part of the same DOM subtree.
+ *   2. **No players list** — chip falls back to a fixed-position
  *      pill on document.body (tests + exotic Foundry overrides).
  *
  * Visual side-effects asserted: the colored dot, the label text,
@@ -23,10 +23,13 @@ function buildPlayersPanel(opts: { withInnerList?: boolean } = {}): HTMLElement 
   aside.id = "players";
   if (opts.withInnerList ?? true) {
     // Foundry v13's real DOM shape: <aside id="players"> contains
-    // an <ol id="player-list"> with <li class="player"> rows.
+    // <div id="players-active"> with <ol class="players-list">.
+    const activeDiv = document.createElement("div");
+    activeDiv.id = "players-active";
     const ol = document.createElement("ol");
-    ol.id = "player-list";
-    aside.appendChild(ol);
+    ol.className = "players-list";
+    activeDiv.appendChild(ol);
+    aside.appendChild(activeDiv);
   }
   document.body.appendChild(aside);
   return aside;
@@ -38,28 +41,28 @@ describe("statusIndicator — mount target selection", () => {
     document.body.innerHTML = "";
   });
 
-  it("mounts as a footer <div> inside #players aside, after any player <ol>s", () => {
-    // Realistic v13 shape: panel has BOTH players-active and
-    // players-inactive lists. Our chip should land AFTER both so it
-    // doesn't get visually grouped with logged-out users.
+  it("mounts as a list item <div> inside #players-active .players-list", () => {
+    // Realistic v13 shape: panel has the players-active div with
+    // players-list ol. Our chip should land inside the list.
     const panel = buildPlayersPanel({ withInnerList: true });
     mountStatusIndicator();
     const el = document.getElementById(EL_ID);
     expect(el).not.toBeNull();
     expect(el?.tagName).toBe("DIV");
-    expect(el?.parentElement).toBe(panel);
-    // Last child of the aside — sits below the <ol>s.
-    expect(panel.lastElementChild).toBe(el);
+    const playersList = panel.querySelector("#players-active .players-list");
+    expect(el?.parentElement).toBe(playersList);
+    // Last child of the list — sits after the player items.
+    expect(playersList?.lastElementChild).toBe(el);
     // No fixed positioning — flows with the panel and collapses with it.
     expect(el?.style.position).not.toBe("fixed");
   });
 
-  it("mounts as a footer <div> even when the aside has no inner list", () => {
+  it("mounts as a list item <div> even when the list has no inner structure", () => {
     const panel = buildPlayersPanel({ withInnerList: false });
     mountStatusIndicator();
     const el = document.getElementById(EL_ID);
     expect(el?.tagName).toBe("DIV");
-    expect(el?.parentElement).toBe(panel);
+    expect(el?.parentElement).toBe(document.body);
   });
 
   it("falls back to a fixed-position pill on body when #players is absent", () => {
@@ -83,16 +86,17 @@ describe("statusIndicator — mount target selection", () => {
     expect(document.querySelectorAll(`#${EL_ID}`).length).toBe(1);
   });
 
-  it("re-mounting upgrades the chip when the panel appears mid-session", () => {
-    // First mount: no players panel → fallback pill on body.
+  it("re-mounting upgrades the chip when the players list appears mid-session", () => {
+    // First mount: no players list → fallback pill on body.
     mountStatusIndicator();
     expect(document.getElementById(EL_ID)?.parentElement).toBe(document.body);
-    // Panel appears (e.g. Foundry finishes loading) and we re-mount.
+    // Players list appears (e.g. Foundry finishes loading) and we re-mount.
     const panel = buildPlayersPanel({ withInnerList: true });
     mountStatusIndicator();
     const after = document.getElementById(EL_ID);
     expect(after?.tagName).toBe("DIV");
-    expect(after?.parentElement).toBe(panel);
+    const playersList = panel.querySelector("#players-active .players-list");
+    expect(after?.parentElement).toBe(playersList);
     expect(document.querySelectorAll(`#${EL_ID}`).length).toBe(1);
   });
 });
