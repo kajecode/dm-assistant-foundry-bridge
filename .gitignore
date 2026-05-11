@@ -1,0 +1,35 @@
+# Node
+node_modules/
+.pnp/
+.pnp.js
+.pnp.cjs
+.pnp.loader.mjs
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Packaged module releases
+*.zip
+module-*.zip
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Env / secret overrides
+.env
+.env.local
+.env.*.local
+
+# Foundry-specific local linking artefacts
+# (when sym-linking dist/ into a local Foundry data dir, sometimes
+# tooling leaves cache files in this directory)
+.foundry-cache/

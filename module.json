@@ -1,0 +1,54 @@
+{
+  "id": "dm-assistant-bridge",
+  "title": "dm-assistant bridge",
+  "description": "Imports content from a running dm-assistant instance into your Foundry world — NPCs as Actors, shops and locations as Journal Entries, with first-class support for Campaign Codex when installed.",
+  "version": "0.0.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13",
+    "maximum": "13"
+  },
+  "authors": [
+    {
+      "name": "Karlan Talkington",
+      "url": "https://github.com/kajecode"
+    }
+  ],
+  "url": "https://github.com/kajecode/dm-assistant-foundry-bridge",
+  "manifest": "https://github.com/kajecode/dm-assistant-foundry-bridge/releases/latest/download/module.json",
+  "download": "https://github.com/kajecode/dm-assistant-foundry-bridge/releases/latest/download/module.zip",
+  "readme": "https://github.com/kajecode/dm-assistant-foundry-bridge/blob/main/README.md",
+  "changelog": "https://github.com/kajecode/dm-assistant-foundry-bridge/blob/main/CHANGELOG.md",
+  "bugs": "https://github.com/kajecode/dm-assistant-foundry-bridge/issues",
+  "license": "MIT",
+  "esmodules": [],
+  "scripts": [],
+  "styles": [],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "languages/en.json"
+    }
+  ],
+  "packs": [],
+  "relationships": {
+    "systems": [],
+    "requires": [],
+    "recommends": [
+      {
+        "id": "campaign-codex",
+        "type": "module",
+        "reason": "When Campaign Codex is installed, the bridge routes imports through CC's richer sheet types (npc / shop / location / group). When absent, falls back to native Foundry actors / journals.",
+        "manifest": "https://github.com/xthesaintx/cc13",
+        "compatibility": {}
+      }
+    ]
+  },
+  "flags": {
+    "dm-assistant-bridge": {
+      "min-api-contract-version": "0.0.0",
+      "comment": "Probed against dm-assistant's GET /foundry/health on startup. Status indicator goes red when the running dm-assistant is older than this; import is disabled until the operator upgrades."
+    }
+  }
+}

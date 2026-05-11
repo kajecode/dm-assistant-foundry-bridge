@@ -1,12 +1,5 @@
 # dm-assistant-foundry-bridge
 
-> Draft README for the new repo `kajecode/dm-assistant-foundry-bridge` (or the
-> upstream equivalent matching `mcdaddytalk/dm-assistant`'s split). Living
-> here in the dm-assistant repo for review before the new repo is bootstrapped;
-> moves over verbatim once the split is approved.
-
----
-
 A Foundry VTT module that imports content from a running [dm-assistant](https://github.com/kajecode/dm-assistant) instance into your Foundry world — NPCs as Actors, shops and locations as Journal Entries, with first-class support for the [Campaign Codex](https://github.com/xthesaintx/cc13) module when installed.
 
 **Status:** pre-release. The dm-assistant side of the integration is still being built; expect breaking changes until the API contract hits v1.0.
@@ -21,7 +14,7 @@ A Foundry VTT module that imports content from a running [dm-assistant](https://
 
 ## Requirements
 
-- **Foundry VTT v12+** (target; older versions untested).
+- **Foundry VTT v13+** (target; v14 support evaluated once it ships). Older Foundry versions are not supported.
 - **A reachable dm-assistant instance** with the `/foundry/*` API endpoints enabled. The bridge talks to dm-assistant over HTTP; running both on the same host is the common case but they can be separated.
 - **Optional: Campaign Codex** ([`xthesaintx/cc13`](https://github.com/xthesaintx/cc13)). When installed, the bridge uses CC's API for richer sheet types; when absent, the bridge falls back to native Foundry actors / journals.
 
@@ -35,7 +28,7 @@ A Foundry VTT module that imports content from a running [dm-assistant](https://
 
 ### Manual install (current, pre-1.0)
 
-1. Download the latest release zip from the [Releases page](#).
+1. Download the latest release zip from the [Releases page](https://github.com/kajecode/dm-assistant-foundry-bridge/releases) (none yet — see _Status_ above).
 2. In Foundry's **Setup → Add-on Modules → Install Module**, paste the manifest URL from that release.
 3. Enable the module in your world's **Game Settings → Manage Modules**.
 
@@ -82,12 +75,12 @@ Full design docs (kept in the dm-assistant repo since they define the API contra
 
 | Foundry version | Game system | CC installed | Status |
 | --- | --- | --- | --- |
-| v12 | D&D 5e | yes | Target for v1 |
-| v12 | D&D 5e | no | Target for v1 (native fallback) |
-| v12 | PF2e | yes | Stretch — v2 |
-| v12 | PF2e | no | Stretch — v2 |
-| v13 | any | any | Probe once Foundry v13 ships |
-| Older Foundry | any | any | Not targeted |
+| v13 | D&D 5e | yes | Target for v1 |
+| v13 | D&D 5e | no | Target for v1 (native fallback) |
+| v13 | PF2e | yes | Stretch — v2 |
+| v13 | PF2e | no | Stretch — v2 |
+| v14 | any | any | Probe once Foundry v14 ships |
+| v12 or older | any | any | Not supported |
 
 ## Development
 
@@ -114,7 +107,7 @@ ln -s "$(pwd)/dist" ~/Library/Application\ Support/FoundryVTT/Data/modules/dm-as
 
 ### Project structure
 
-```
+```text
 .
 ├── src/
 │   ├── index.ts                 # Foundry module entrypoint (Hooks.on('init'))
