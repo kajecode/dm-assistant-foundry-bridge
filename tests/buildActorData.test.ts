@@ -103,7 +103,11 @@ describe("buildImportBundle — happy path", () => {
     expect(flags.kind).toBe("npc-actor");
   });
 
-  it("does NOT populate system.attributes/abilities — that's S9 territory", () => {
+  it("does NOT populate system.attributes/abilities when front_matter.stats is absent", () => {
+    // Sanity check for the legacy path — the happy-path fixture has
+    // no `stats:` block, so the actor lands biography-only. The
+    // structured-fields path is exercised in the "with stats" describe
+    // below.
     const sys = bundle.actor.system as Record<string, unknown>;
     expect(sys.attributes).toBeUndefined();
     expect(sys.abilities).toBeUndefined();
@@ -165,6 +169,80 @@ describe("buildImportBundle — variants", () => {
     const bundle  = buildImportBundle(payload, { campaignId: "c" });
     expect(bundle.actor.name).toBe("aldric-harwick");
     expect(bundle.actor.prototypeToken.name).toBe("aldric-harwick");
+  });
+
+  it("merges dnd5e stat-block fields when front_matter.stats is present (#10)", () => {
+    const payload = makePayload({
+      front_matter: {
+        race: "Human",
+        occupation: "Blacksmith",
+        stats: {
+          ruleset:    "dnd5e",
+          ac:         14,
+          hp:         30,
+          cr:         "1",
+          size:       "med",
+          alignment:  "lawful good",
+          type:       { value: "humanoid", subtype: "(human)" },
+          abilities:  { str: 14, dex: 10, con: 13, int: 11, wis: 10, cha: 12 },
+          speed:      { walk: 30, units: "ft" },
+          languages:  ["Common", "Dwarvish"],
+          damage_immunities: [],
+        },
+      },
+    });
+    const bundle = buildImportBundle(payload, { campaignId: "c" });
+    const sys = bundle.actor.system as Record<string, unknown>;
+
+    // Biography still there.
+    const details = sys.details as Record<string, unknown>;
+    const bio = details.biography as { value: string };
+    expect(bio.value).toContain("<h2>Appearance &amp; Mannerisms</h2>");
+
+    // dnd5e structured fields populated.
+    const attrs = sys.attributes as Record<string, unknown>;
+    const ac    = attrs.ac as Record<string, unknown>;
+    expect(ac.flat).toBe(14);
+    expect(ac.calc).toBe("flat");
+
+    const abilities = sys.abilities as Record<string, { value: number }>;
+    expect(abilities.str!.value).toBe(14);
+    expect(abilities.cha!.value).toBe(12);
+
+    const traits = sys.traits as Record<string, unknown>;
+    expect(traits.size).toBe("med");
+    expect((traits.languages as { value: string[] }).value).toEqual(["common", "dwarvish"]);
+
+    expect(details.cr).toBe(1);
+    expect(details.alignment).toBe("lawful good");
+  });
+
+  it("biography-only when stats.ruleset is unsupported (#10)", () => {
+    // Unknown ruleset (e.g. pf2e in v1) → log a warning + fall back
+    // to the biography-only system block. Biography still populates.
+    const payload = makePayload({
+      front_matter: {
+        stats: { ruleset: "pf2e", ac: 14, hp: 30 },
+      },
+    });
+    const bundle = buildImportBundle(payload, { campaignId: "c" });
+    const sys = bundle.actor.system as Record<string, unknown>;
+    expect(sys.attributes).toBeUndefined();
+    expect(sys.abilities).toBeUndefined();
+    // Biography intact.
+    const details = sys.details as Record<string, unknown>;
+    const bio = details.biography as { value: string };
+    expect(bio.value).toBeTruthy();
+  });
+
+  it("biography-only when front_matter.stats is missing (legacy markdown)", () => {
+    // Pre-#466 markdown without a `stats:` block. Tested implicitly
+    // by the happy-path test above; pinned here so the legacy path
+    // can't regress.
+    const payload = makePayload({ front_matter: { race: "Human" } });
+    const bundle = buildImportBundle(payload, { campaignId: "c" });
+    const sys = bundle.actor.system as Record<string, unknown>;
+    expect(sys.attributes).toBeUndefined();
   });
 
   it("escapes HTML special chars in race/occupation front-matter (defence-in-depth)", () => {
