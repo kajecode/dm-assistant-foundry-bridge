@@ -57,12 +57,10 @@ let currentPayload: StatusPayload = { state: "unknown" };
  * players panel don't end up with stale + new chips both in the DOM.
  *
  * Selection order:
- *   1. `#players` (the panel's outer `<aside>`) — chip mounts as a
- *      footer `<div>`, clearly separate from any player `<ol>`.
- *      v13 renders the panel with multiple lists (`players-active`,
- *      `players-inactive`); appending to the aside puts the chip
- *      AFTER those lists so a real user logging out doesn't end up
- *      visually grouped with the bridge chip.
+ *   1. `#players-active .players-list` — chip mounts as a list item
+ *      inside the active players list, matching ItemPiles' pattern.
+ *      This keeps the chip visually grouped with the players rather
+ *      than separated as a footer.
  *   2. Floating pill on `document.body` — fallback for tests and
  *      pre-`ready` firings where no players panel exists.
  *
@@ -72,18 +70,18 @@ let currentPayload: StatusPayload = { state: "unknown" };
 export function mountStatusIndicator(): void {
   document.getElementById(EL_ID)?.remove();
 
-  const playersAside = document.querySelector<HTMLElement>("#players");
-  if (playersAside) {
-    currentEl = buildChip({ mode: "panel-footer" });
-    playersAside.appendChild(currentEl);
-    log.info("status chip mounted as footer in #players aside");
+  const playersList = document.querySelector<HTMLElement>("#players-active .players-list");
+  if (playersList) {
+    currentEl = buildChip({ mode: "list-item" });
+    playersList.appendChild(currentEl);
+    log.info("status chip mounted as list item in #players-active .players-list");
     applyPayload(currentPayload);
     return;
   }
 
   currentEl = buildChip({ mode: "fallback-pill" });
   document.body.appendChild(currentEl);
-  log.info("status chip mounted as fallback pill on document.body (no #players panel)");
+  log.info("status chip mounted as fallback pill on document.body (no players list)");
   applyPayload(currentPayload);
 }
 
@@ -100,7 +98,7 @@ export function getStatus(): StatusPayload {
   return { ...currentPayload };
 }
 
-type ChipMode = "panel-footer" | "fallback-pill";
+type ChipMode = "list-item" | "fallback-pill";
 
 function buildChip(opts: { mode: ChipMode }): HTMLElement {
   const root = document.createElement("div");
@@ -119,13 +117,11 @@ function buildChip(opts: { mode: ChipMode }): HTMLElement {
       boxShadow:    "0 1px 3px rgba(0,0,0,0.3)",
     } satisfies Partial<CSSStyleDeclaration>);
   } else {
-    // Footer style: subtle card aligned to the panel's typography,
-    // a thin top border separating us from the player lists above.
+    // List item style: subtle appearance integrated into the players
+    // list, with padding matching the list item styling.
     Object.assign(root.style, {
-      padding:     "6px 10px",
-      marginTop:   "4px",
+      padding:     "4px 10px",
       color:       "var(--color-text-primary, #ddd)",
-      borderTop:   "1px solid rgba(255, 255, 255, 0.08)",
     } satisfies Partial<CSSStyleDeclaration>);
   }
   Object.assign(root.style, {
