@@ -22,10 +22,13 @@ interface FoundryDialogOpts {
   buttons: Record<string, {
     icon?:    string;
     label:    string;
-    callback?: ((html: HTMLElement) => void | Promise<void>);
+    // Foundry passes html as a jQuery wrapper in v1 (deprecated in
+    // v13 but still functional); we unwrap to HTMLElement via
+    // `unwrapHtml` before reading the DOM.
+    callback?: ((html: unknown) => void | Promise<void>);
   }>;
   default?: string;
-  render?:  (html: HTMLElement) => void;
+  render?:  (html: unknown) => void;
   close?:   () => void;
 }
 
@@ -74,9 +77,25 @@ function buildBody(npcs: SavedNpcSummary[]): string {
   `;
 }
 
-function wireFilter(root: HTMLElement): void {
-  const el = root as HTMLElement;
-  const input = el.querySelector?.<HTMLInputElement>(".dab-npc-filter");
+/**
+ * Foundry v1 Dialogs pass `html` as a jQuery wrapper, NOT a raw
+ * HTMLElement. The underlying DOM element is at `html[0]`. Detect
+ * both forms — modern ApplicationV2 will hand us a plain element,
+ * v1 hands us a jQuery wrapper. Either way we get a real DOM root.
+ */
+function unwrapHtml(html: unknown): HTMLElement | null {
+  if (html instanceof HTMLElement) return html;
+  if (html && typeof html === "object" && "0" in html) {
+    const inner = (html as { 0?: unknown })[0];
+    if (inner instanceof HTMLElement) return inner;
+  }
+  return null;
+}
+
+function wireFilter(html: unknown): void {
+  const el = unwrapHtml(html);
+  if (!el) return;
+  const input = el.querySelector<HTMLInputElement>(".dab-npc-filter");
   if (!input) return;
   input.addEventListener("input", () => {
     const q = input.value.trim().toLowerCase();
@@ -87,9 +106,10 @@ function wireFilter(root: HTMLElement): void {
   });
 }
 
-function pickedSlug(root: HTMLElement): string | null {
-  const el = root as HTMLElement;
-  const checked = el.querySelector?.<HTMLInputElement>('input[name="dab-npc-pick"]:checked');
+function pickedSlug(html: unknown): string | null {
+  const el = unwrapHtml(html);
+  if (!el) return null;
+  const checked = el.querySelector<HTMLInputElement>('input[name="dab-npc-pick"]:checked');
   return checked?.value ?? null;
 }
 
@@ -166,3 +186,11 @@ export async function openImportPicker(): Promise<void> {
   });
   dialog.render(true);
 }
+
+// Test-only exports — keep the runtime API surface (`openImportPicker`)
+// public-only; expose the DOM helpers so unit tests can pin the
+// jQuery-wrapper-vs-HTMLElement behaviour without spinning up Foundry.
+export const _internalForTests = {
+  unwrapHtml,
+  pickedSlug,
+};
