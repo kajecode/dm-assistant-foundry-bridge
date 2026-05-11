@@ -9,15 +9,38 @@
 
 import type { FoundryHealthResponse } from "./types.js";
 
+/**
+ * Categorises the failure so the UI can render a useful hint
+ * instead of the raw browser error. The browser deliberately
+ * conflates several distinct failures into `TypeError: Failed to
+ * fetch` (CORS preflight failure, DNS failure, connection refused,
+ * mixed-content block, etc.) — without devtools the operator can't
+ * tell them apart. We can't fix the conflation, but we can route
+ * the most common bridge cause (CORS) to a hint.
+ */
+export type ApiErrorKind =
+  | "network"           // fetch threw — could be CORS, DNS, mixed-content, refused conn
+  | "http"              // got a response, status was non-2xx
+  | "timeout"           // AbortController fired
+  | "shape"             // response parsed but didn't match the expected schema
+  | "config";           // caller misconfigured (e.g. empty baseUrl)
+
 export class ApiError extends Error {
+  public readonly kind:    ApiErrorKind;
   public readonly status?: number;
+  public readonly url?:    string;
   public override readonly cause?: unknown;
 
-  constructor(message: string, status?: number, cause?: unknown) {
+  constructor(
+    message: string,
+    opts: { kind: ApiErrorKind; status?: number; url?: string; cause?: unknown },
+  ) {
     super(message);
     this.name   = "ApiError";
-    this.status = status;
-    this.cause  = cause;
+    this.kind   = opts.kind;
+    this.status = opts.status;
+    this.url    = opts.url;
+    this.cause  = opts.cause;
   }
 }
 
@@ -53,7 +76,7 @@ async function withTimeout<T>(p: Promise<T>, ms: number, signal: AbortController
 
 export async function fetchHealth(opts: ClientOptions): Promise<FoundryHealthResponse> {
   const base   = normaliseBase(opts.baseUrl);
-  if (!base) throw new ApiError("baseUrl is empty");
+  if (!base) throw new ApiError("baseUrl is empty", { kind: "config" });
   const url    = `${base}/foundry/health?role=dm`;
   const ctrl   = new AbortController();
   const timeoutMs = opts.timeoutMs ?? 5000;
@@ -64,25 +87,29 @@ export async function fetchHealth(opts: ClientOptions): Promise<FoundryHealthRes
       ctrl,
     );
     if (!res.ok) {
-      throw new ApiError(`HTTP ${res.status} from ${url}`, res.status);
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
     }
     const body = (await res.json()) as FoundryHealthResponse;
     // Light shape validation — refuse responses that don't look right
     // so a misconfigured base URL pointing at the wrong service fails
     // loudly instead of poisoning the indicator with a green tick.
     if (typeof body.api_contract_version !== "string") {
-      throw new ApiError(`Response missing api_contract_version`);
+      throw new ApiError("Response missing api_contract_version", { kind: "shape", url });
     }
     return body;
   } catch (e) {
     if (e instanceof ApiError) throw e;
     if (e instanceof Error && e.name === "AbortError") {
-      throw new ApiError(`Timeout after ${timeoutMs}ms`, undefined, e);
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
     }
+    // Browsers throw TypeError for ANY fetch that doesn't complete a
+    // full HTTP round-trip — CORS preflight rejection, DNS miss,
+    // refused connection, mixed-content block all collapse into
+    // "Failed to fetch". We can't distinguish them at runtime, but
+    // we can flag the failure as `network` so the UI offers a hint.
     throw new ApiError(
       e instanceof Error ? e.message : "Unknown fetch error",
-      undefined,
-      e,
+      { kind: "network", url, cause: e },
     );
   }
 }

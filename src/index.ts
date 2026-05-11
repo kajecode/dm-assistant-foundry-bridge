@@ -16,6 +16,7 @@ import { getSetting, registerSettings } from "./settings/register.js";
 import { ApiError, compareSemver, fetchHealth } from "./api/client.js";
 import { mountStatusIndicator, setStatus } from "./ui/statusIndicator.js";
 import { attachTestConnectionButton, type ProbeResult } from "./ui/testConnection.js";
+import { explainError } from "./lib/errorHints.js";
 import { log } from "./lib/log.js";
 
 declare const Hooks: {
@@ -67,8 +68,22 @@ async function runProbe(): Promise<ProbeResult> {
       serverVersion:   health.dm_assistant_version,
     };
   } catch (e) {
-    const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e);
-    log.warn("health probe failed", msg);
+    if (e instanceof ApiError) {
+      const hint = explainError(e);
+      log.warn("health probe failed", e.kind, e.message);
+      setStatus({
+        state:   e.kind === "timeout" || e.kind === "network" ? "unreachable" : "unreachable",
+        detail:  hint.detail,
+      });
+      return {
+        ok:     false,
+        error:  hint.message,
+        hint:   hint.detail,
+        origin: hint.origin,
+      };
+    }
+    const msg = e instanceof Error ? e.message : String(e);
+    log.warn("health probe failed (non-ApiError)", msg);
     setStatus({ state: "unreachable", detail: msg });
     return { ok: false, error: msg };
   }
