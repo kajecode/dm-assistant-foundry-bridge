@@ -21,7 +21,7 @@
   "changelog": "https://github.com/kajecode/dm-assistant-foundry-bridge/blob/main/CHANGELOG.md",
   "bugs": "https://github.com/kajecode/dm-assistant-foundry-bridge/issues",
   "license": "MIT",
-  "esmodules": [],
+  "esmodules": ["dist/index.js"],
   "scripts": [],
   "styles": [],
   "languages": [

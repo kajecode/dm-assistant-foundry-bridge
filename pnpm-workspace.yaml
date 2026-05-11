@@ -1,0 +1,7 @@
+# pnpm 10 blocks build scripts by default. esbuild ships a small
+# postinstall that pulls down the platform-native binary; without
+# this allowlist, vite falls back to JS-only and is much slower in
+# the dev/watch loop. Listing esbuild explicitly is safer than the
+# global escape hatch.
+onlyBuiltDependencies:
+  - esbuild
