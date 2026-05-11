@@ -56,21 +56,51 @@ let currentPayload: StatusPayload = { state: "unknown" };
  * exists, it's removed before re-creation so re-renders of the
  * players list don't end up with stale + new chips both in the DOM.
  *
- * Selection order: prefer `#players` (Foundry's player list panel)
- * so the chip collapses with that panel; fall back to a floating
- * pill on `document.body` when the panel isn't present.
+ * Selection order:
+ *   1. `#player-list` (the inner `<ol>` Foundry v13 renders inside
+ *      the panel) — chip mounts as an `<li>` so it sits alongside
+ *      player rows. This is the case we expect in a live world.
+ *   2. `#players` (the outer `<aside>`) — chip mounts as a `<div>`
+ *      after the `<ol>`. Used when Foundry's internal structure
+ *      shifts in a future release.
+ *   3. Floating pill on `document.body` — fallback for tests and
+ *      pre-`ready` firings where no players panel exists.
+ *
+ * Logs the chosen mount target at INFO so operators can confirm in
+ * devtools that mount actually ran. v0.1.0 smoke surfaced a case
+ * where the chip wasn't visible; the log lets us tell "didn't mount"
+ * from "mounted but hidden by panel CSS" without a screen share.
  */
 export function mountStatusIndicator(): void {
   document.getElementById(EL_ID)?.remove();
 
-  const playersPanel = document.querySelector("#players");
-  if (playersPanel) {
-    currentEl = buildChip(/* fallback= */ false);
-    playersPanel.appendChild(currentEl);
-  } else {
-    currentEl = buildChip(/* fallback= */ true);
-    document.body.appendChild(currentEl);
+  // Prefer the inner ol — that's where player <li> rows live, so an
+  // <li> we append visually sits alongside them and inherits panel
+  // styling. Selector covers Foundry v13's `#player-list` plus a
+  // couple of historical variants for safety.
+  const innerList = document.querySelector<HTMLElement>(
+    "#player-list, #players ol, #players .players-list",
+  );
+  if (innerList) {
+    currentEl = buildChip({ mode: "list-item" });
+    innerList.appendChild(currentEl);
+    log.info("status chip mounted inside player list (li)", innerList.id || innerList.className);
+    applyPayload(currentPayload);
+    return;
   }
+
+  const playersAside = document.querySelector<HTMLElement>("#players");
+  if (playersAside) {
+    currentEl = buildChip({ mode: "panel-footer" });
+    playersAside.appendChild(currentEl);
+    log.info("status chip mounted in #players aside (no inner ol found)");
+    applyPayload(currentPayload);
+    return;
+  }
+
+  currentEl = buildChip({ mode: "fallback-pill" });
+  document.body.appendChild(currentEl);
+  log.info("status chip mounted as fallback pill on document.body (no #players panel)");
   applyPayload(currentPayload);
 }
 
@@ -87,14 +117,22 @@ export function getStatus(): StatusPayload {
   return { ...currentPayload };
 }
 
-function buildChip(fallback: boolean): HTMLElement {
-  const root = document.createElement("div");
+type ChipMode = "list-item" | "panel-footer" | "fallback-pill";
+
+function buildChip(opts: { mode: ChipMode }): HTMLElement {
+  // Inside the player list we want a proper <li> so we sit alongside
+  // player rows and inherit the panel's row styling. Elsewhere a
+  // <div> is fine.
+  const tag = opts.mode === "list-item" ? "li" : "div";
+  const root = document.createElement(tag);
   root.id = EL_ID;
-  // Two style modes. Inside the players panel we want to inherit the
-  // panel's font / padding so we look like a sibling player row.
-  // The fallback floats fixed-position with a bit more padding so
-  // it's legible against any background.
-  if (fallback) {
+  if (opts.mode === "list-item") {
+    // Match Foundry's `<li class="player">` so we pick up the
+    // panel's row padding / hover styling. The `dab-bridge` class
+    // lets us override anything that doesn't fit.
+    root.className = "player dab-bridge";
+  }
+  if (opts.mode === "fallback-pill") {
     Object.assign(root.style, {
       position:     "fixed",
       bottom:       "8px",
@@ -120,6 +158,10 @@ function buildChip(fallback: boolean): HTMLElement {
     fontFamily:  "system-ui, sans-serif",
     cursor:      "default",
     userSelect:  "none",
+    // Prevent Foundry's list CSS from clipping our content if the
+    // panel is narrow.
+    minWidth:    "0",
+    overflow:    "visible",
   } satisfies Partial<CSSStyleDeclaration>);
 
   const dot = document.createElement("span");
