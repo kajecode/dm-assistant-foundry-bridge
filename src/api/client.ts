@@ -7,7 +7,12 @@
  * `?role=dm` until that gets replaced with header-based auth.
  */
 
-import type { FoundryHealthResponse } from "./types.js";
+import type {
+  FoundryHealthResponse,
+  FoundryNpcResponse,
+  SavedNpcListResponse,
+  SavedNpcSummary,
+} from "./types.js";
 
 /**
  * Categorises the failure so the UI can render a useful hint
@@ -107,6 +112,146 @@ export async function fetchHealth(opts: ClientOptions): Promise<FoundryHealthRes
     // refused connection, mixed-content block all collapse into
     // "Failed to fetch". We can't distinguish them at runtime, but
     // we can flag the failure as `network` so the UI offers a hint.
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+export interface NpcFetchOptions extends ClientOptions {
+  campaignId: string;
+  slug:       string;
+}
+
+/**
+ * Fetch a single NPC's import payload. Mirrors
+ * `GET /foundry/npc/{slug}?campaign_id=...&role=dm`.
+ */
+export async function fetchNpc(opts: NpcFetchOptions): Promise<FoundryNpcResponse> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty", { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+  if (!opts.slug)       throw new ApiError("slug is empty", { kind: "config" });
+
+  const url    = `${base}/foundry/npc/${encodeURIComponent(opts.slug)}?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 10000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+    }
+    const body = (await res.json()) as FoundryNpcResponse;
+    if (typeof body.slug !== "string" || typeof body.kind !== "string") {
+      throw new ApiError("Response missing slug/kind", { kind: "shape", url });
+    }
+    return body;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+export interface ListNpcsOptions extends ClientOptions {
+  campaignId: string;
+}
+
+/**
+ * Fetch the picker's NPC list. v1 uses dm-assistant's existing
+ * `/npc-generate/saved` endpoint (no `/foundry/manifest` yet — see
+ * S6 / `dm-assistant#450` for the planned consolidation).
+ */
+export async function listNpcs(opts: ListNpcsOptions): Promise<SavedNpcSummary[]> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty", { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+
+  const url    = `${base}/npc-generate/saved?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 5000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+    }
+    const body = (await res.json()) as SavedNpcListResponse;
+    if (!Array.isArray(body.saved)) {
+      throw new ApiError("Response missing 'saved' array", { kind: "shape", url });
+    }
+    return body.saved;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+/**
+ * Fetch raw bytes from dm-assistant — used for portrait + thumb
+ * downloads before FilePicker upload. The `path` argument is the
+ * relative URL returned in `portrait_url` / `thumb_url`
+ * (e.g. `/api/npc-generate/image/aldric-harwick`); we prepend the
+ * configured base URL.
+ *
+ * Note the path-vs-base mismatch: dm-assistant's image endpoints live
+ * at `/api/npc-generate/image/...`, but the `/foundry/*` endpoints
+ * also live under `/api/foundry/...`. The bridge's `baseUrl` setting
+ * is e.g. `https://dm-assist-local.kaje.org/api` — so the `image`
+ * URLs from the API response actually start with `/api/...`, meaning
+ * a naive concat would double the `/api` prefix.
+ *
+ * We strip the leading `/api` from the response path when the base
+ * URL already ends in `/api`. Verbose but correct.
+ */
+export async function fetchImageBytes(opts: ClientOptions & { path: string }): Promise<Blob> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base) throw new ApiError("baseUrl is empty", { kind: "config" });
+
+  // dm-assistant's responses put `/api/...` paths in image URLs even
+  // though the API itself is mounted at `/api`. If our base already
+  // ends in `/api`, strip the leading `/api` to avoid doubling.
+  let path = opts.path;
+  if (base.endsWith("/api") && path.startsWith("/api/")) {
+    path = path.slice("/api".length);
+  }
+  const url    = `${base}${path}`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 15000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+    }
+    return await res.blob();
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
     throw new ApiError(
       e instanceof Error ? e.message : "Unknown fetch error",
       { kind: "network", url, cause: e },

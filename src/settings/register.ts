@@ -89,12 +89,31 @@ export function registerSettings(onConnChange: OnConnectionSettingChange): void 
     type:    String,
     default: "dm-assistant Imports",
   });
+
+  game.settings.register(MODULE_ID, SETTING.dataPathPrefix, {
+    name:    "DM-ASSISTANT-BRIDGE.settings.dataPathPrefix.name",
+    hint:    "DM-ASSISTANT-BRIDGE.settings.dataPathPrefix.hint",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    default: "dm-assistant",
+  });
 }
 
 /**
  * Type-safe wrapper around `game.settings.get()`. The settings API
  * returns `unknown`; this collapses the cast to one place.
+ *
+ * String settings are trimmed before return — a leading / trailing
+ * space typed into the Foundry settings input would otherwise leak
+ * into URL construction and produce 404s with the encoded space
+ * (`?campaign_id=%20392740`). Trimming on read is centralised here
+ * so every consumer benefits without remembering to trim.
  */
 export function getSetting<T = string>(key: SettingKey): T {
-  return game.settings.get(MODULE_ID, key) as T;
+  const value = game.settings.get(MODULE_ID, key);
+  if (typeof value === "string") {
+    return value.trim() as unknown as T;
+  }
+  return value as T;
 }

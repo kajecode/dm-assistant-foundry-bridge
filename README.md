@@ -16,7 +16,9 @@ A Foundry VTT module that imports content from a running [dm-assistant](https://
 
 - **Foundry VTT v13+** (target; v14 support evaluated once it ships). Older Foundry versions are not supported.
 - **A reachable dm-assistant instance** with the `/foundry/*` API endpoints enabled. The bridge talks to dm-assistant over HTTP; running both on the same host is the common case but they can be separated.
-- **Optional: Campaign Codex** ([`xthesaintx/cc13`](https://github.com/xthesaintx/cc13)). When installed, the bridge uses CC's API for richer sheet types; when absent, the bridge falls back to native Foundry actors / journals.
+- **Optional: Campaign Codex** ([`xthesaintx/cc13`](https://github.com/xthesaintx/cc13)). When installed, the bridge will eventually use CC's API for richer sheet types; when absent, the bridge falls back to native Foundry actors / journals.
+
+> **v1 CC gap (NPC import).** The v1 NPC import flow creates plain Foundry actors only. CC's documented API (`convertJournalToCCSheet`) is journal-side; no stable actor-side path exists today. The "Use Campaign Codex when available" setting is a no-op for NPCs in v1 — it'll be honoured once a future SPIKE settles on the actor-to-CC-sheet mechanism. Shop / Location imports (S6 / S7) will use CC paths from the start since those map cleanly onto CC's journal-based sheet types.
 
 ## Installation
 

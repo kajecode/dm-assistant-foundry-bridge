@@ -29,6 +29,19 @@ export interface FoundrySection {
   body_md: string;
 }
 
+export interface SavedNpcSummary {
+  slug:        string;
+  name:        string;
+  region:      string;
+  modified_at: string;
+  has_image:   boolean;
+  thumb_url:   string;
+}
+
+export interface SavedNpcListResponse {
+  saved: SavedNpcSummary[];
+}
+
 export interface FoundryNpcResponse {
   slug:           string;
   kind:           "npc";
