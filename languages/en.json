@@ -1,0 +1,30 @@
+{
+  "DM-ASSISTANT-BRIDGE": {
+    "settings": {
+      "baseUrl": {
+        "name": "dm-assistant base URL",
+        "hint": "HTTP endpoint of your dm-assistant instance. Use http://localhost:5000 when running on the same host."
+      },
+      "apiKey": {
+        "name": "dm-assistant API key",
+        "hint": "Optional. Required only if your dm-assistant is exposed beyond localhost and gated behind an API key."
+      },
+      "campaignId": {
+        "name": "Campaign ID",
+        "hint": "The dm-assistant campaign to pull from. Find it in the dm-assistant sidebar."
+      },
+      "useCampaignCodex": {
+        "name": "Use Campaign Codex when available",
+        "hint": "When checked and Campaign Codex is installed, route imports through CC's sheet types. Uncheck to always use native Foundry documents."
+      },
+      "actorFolder": {
+        "name": "Default actor folder",
+        "hint": "Foundry folder name where newly-imported actors are placed."
+      },
+      "journalFolder": {
+        "name": "Default journal folder",
+        "hint": "Foundry folder name where newly-imported journals are placed."
+      }
+    }
+  }
+}
