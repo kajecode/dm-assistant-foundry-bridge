@@ -74,19 +74,22 @@ function getMinContractVersion(): string {
 }
 
 /**
- * Reads the bridge module's own version from `module.json` via
- * Foundry's module registry. Used in the status chip's label so
- * the DM sees the version they installed (matches Foundry's
- * module list). Returns undefined when Foundry's registry doesn't
- * expose the entry — chip then renders bare without a version tag.
+ * Bridge module version, injected at build time from `module.json`
+ * via Vite's `define` (see `vite.config.ts`). Foundry's runtime
+ * `game.modules.get(id).version` was returning "0.0.0" in some v13
+ * worlds — the build-time constant gives us a value we control end
+ * to end. Falls back to undefined-equivalent in test environments
+ * where `__BRIDGE_VERSION__` wasn't substituted (chip then renders
+ * bare without a version tag).
  */
+declare const __BRIDGE_VERSION__: string | undefined;
+
 function getBridgeModuleVersion(): string | undefined {
-  type ModuleEntry = { version?: unknown };
-  type GameModules = { get: (id: string) => ModuleEntry | undefined };
-  const moduleEntry = (globalThis as unknown as { game: { modules: GameModules } })
-    .game.modules.get(MODULE_ID);
-  const v = moduleEntry?.version;
-  return typeof v === "string" ? v : undefined;
+  // `typeof` guard avoids ReferenceError in any environment that
+  // happens to evaluate this code without the define applied.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  const v: string | undefined = typeof __BRIDGE_VERSION__ === "string" ? __BRIDGE_VERSION__ : undefined;
+  return v && v.length > 0 ? v : undefined;
 }
 
 async function runProbe(): Promise<ProbeResult> {

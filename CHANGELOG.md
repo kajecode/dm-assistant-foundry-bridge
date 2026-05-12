@@ -26,6 +26,9 @@ older dm-assistant deployments; flag it explicitly in the entry below.
   mean?" confusion from the v0.22.x patch-storm smoke. Internal: the
   `StatusPayload.version` field was replaced with a richer
   `StatusPayload.versions` object (`{ bridge?, dmAssistant?, apiContract? }`).
+  Version is injected at build time via Vite `define` (sidesteps Foundry
+  v13's `game.modules.get(id).version` getter, which was returning "0.0.0"
+  in some worlds where the manifest hadn't fully reconciled).
 
 ## [0.2.0] — 2026-05-12
 
