@@ -1,12 +1,13 @@
 /**
- * Import picker — Foundry Dialog listing the NPCs in the configured
- * dm-assistant campaign. DM picks one, clicks Import, the
- * orchestrator runs.
+ * Import picker — Foundry v13 ApplicationV2 dialog listing the NPCs
+ * in the configured dm-assistant campaign. DM picks one, clicks
+ * Import, the orchestrator runs.
  *
- * v1 deliberately renders a plain HTML list with a search filter on
- * top, inside Foundry's `Dialog` class. ApplicationV2 ports +
- * fancier UX land in S6 (shop picker) when the kind-multiplexing
- * problem actually exists.
+ * Ports from the deprecated v1 `Dialog` class to
+ * `foundry.applications.api.DialogV2` (#11). Resolves via the
+ * `foundry.applications.api` namespace the same way KeyboardManager
+ * and FilePicker do — v13's deprecation warning was the last
+ * console-noise item from the v0.1.0 smoke.
  */
 
 import type { SavedNpcSummary } from "../api/types.js";
@@ -16,23 +17,46 @@ import { getSetting } from "../settings/register.js";
 import { SETTING } from "../settings/keys.js";
 import { log } from "../lib/log.js";
 
-interface FoundryDialogOpts {
-  title:    string;
-  content:  string;
-  buttons: Record<string, {
-    icon?:    string;
-    label:    string;
-    // Foundry passes html as a jQuery wrapper in v1 (deprecated in
-    // v13 but still functional); we unwrap to HTMLElement via
-    // `unwrapHtml` before reading the DOM.
-    callback?: ((html: unknown) => void | Promise<void>);
-  }>;
-  default?: string;
-  render?:  (html: unknown) => void;
-  close?:   () => void;
+// ─── DialogV2 namespace resolver ─────────────────────────────────────────────
+
+interface DialogV2Instance {
+  element: HTMLElement;
+  render:  (opts?: { force?: boolean }) => Promise<unknown>;
+  close:   () => Promise<unknown>;
 }
 
-declare const Dialog: new (opts: FoundryDialogOpts) => { render: (force?: boolean) => unknown };
+interface DialogV2Constructor {
+  new (opts: {
+    window: { title: string };
+    content: string | HTMLElement;
+    buttons: Array<{
+      action:    string;
+      label:     string;
+      icon?:     string;
+      default?:  boolean;
+      callback?: (event: unknown, button: unknown, dialog: DialogV2Instance) => void | Promise<void>;
+    }>;
+    modal?:        boolean;
+    rejectClose?:  boolean;
+  }): DialogV2Instance;
+}
+
+function resolveDialogV2(): DialogV2Constructor {
+  const g = globalThis as unknown as {
+    foundry?: { applications?: { api?: { DialogV2?: DialogV2Constructor } } };
+  };
+  const v2 = g.foundry?.applications?.api?.DialogV2;
+  if (!v2) {
+    throw new Error(
+      "Foundry DialogV2 is not available — module loaded outside a " +
+      "Foundry v13+ world?",
+    );
+  }
+  return v2;
+}
+
+// ─── Foundry runtime globals (minimal declarations) ─────────────────────────
+
 declare const ui: {
   notifications: {
     info:  (msg: string) => void;
@@ -40,6 +64,8 @@ declare const ui: {
     error: (msg: string) => void;
   };
 };
+
+// ─── HTML / DOM helpers ─────────────────────────────────────────────────────
 
 function escape(s: string): string {
   return s
@@ -78,10 +104,10 @@ function buildBody(npcs: SavedNpcSummary[]): string {
 }
 
 /**
- * Foundry v1 Dialogs pass `html` as a jQuery wrapper, NOT a raw
- * HTMLElement. The underlying DOM element is at `html[0]`. Detect
- * both forms — modern ApplicationV2 will hand us a plain element,
- * v1 hands us a jQuery wrapper. Either way we get a real DOM root.
+ * Best-effort DOM unwrap. DialogV2 hands callbacks a `dialog.element`
+ * that's a raw HTMLElement — no jQuery wrapper. Helper kept around
+ * (and accepting `unknown`) so future ports + tests can pass either
+ * form without changing call sites.
  */
 function unwrapHtml(html: unknown): HTMLElement | null {
   if (html instanceof HTMLElement) return html;
@@ -113,6 +139,8 @@ function pickedSlug(html: unknown): string | null {
   return checked?.value ?? null;
 }
 
+// ─── Entry point ────────────────────────────────────────────────────────────
+
 /**
  * Open the picker. Fetches the NPC list first so any HTTP error is
  * surfaced before the dialog opens (avoids an empty modal flickering).
@@ -142,18 +170,29 @@ export async function openImportPicker(): Promise<void> {
     return;
   }
 
-  const dialog = new Dialog({
-    title:   "Import NPC from dm-assistant",
+  const DialogV2 = resolveDialogV2();
+  const dialog = new DialogV2({
+    window: { title: "Import NPC from dm-assistant" },
     content: buildBody(npcs),
-    buttons: {
-      cancel: { icon: "<i class='fas fa-times'></i>", label: "Cancel" },
-      import: {
-        icon:  "<i class='fas fa-download'></i>",
-        label: "Import",
-        callback: async (html) => {
-          const slug = pickedSlug(html);
+    buttons: [
+      {
+        action: "cancel",
+        label:  "Cancel",
+        icon:   "fas fa-times",
+      },
+      {
+        action:  "import",
+        label:   "Import",
+        icon:    "fas fa-download",
+        default: true,
+        callback: async (_event, _button, dlg) => {
+          const slug = pickedSlug(dlg.element);
           if (!slug) {
             ui.notifications.warn("Pick an NPC first.");
+            // Returning here resolves the dialog promise + auto-closes.
+            // For "pick again" UX we'd need to throw to keep the dialog
+            // open, but v1's behaviour was also single-shot — keep
+            // parity with the v0.1.0 release.
             return;
           }
           try {
@@ -180,17 +219,22 @@ export async function openImportPicker(): Promise<void> {
           }
         },
       },
-    },
-    default: "import",
-    render:  wireFilter,
+    ],
   });
-  dialog.render(true);
+
+  await dialog.render({ force: true });
+  // DialogV2 doesn't expose a per-instance `render` hook callback like
+  // v1 did, so wire the filter listener after render() resolves —
+  // `dialog.element` is the live DOM at that point.
+  wireFilter(dialog.element);
 }
 
 // Test-only exports — keep the runtime API surface (`openImportPicker`)
 // public-only; expose the DOM helpers so unit tests can pin the
-// jQuery-wrapper-vs-HTMLElement behaviour without spinning up Foundry.
+// HTMLElement / jQuery-wrapper unwrap behaviour without spinning up
+// Foundry.
 export const _internalForTests = {
   unwrapHtml,
   pickedSlug,
+  resolveDialogV2,
 };

@@ -16,6 +16,10 @@ import type { FoundryNpcResponse } from "../../api/types.js";
 import { buildBiographyHtml }      from "./buildBiography.js";
 import { buildDmJournalPages,
          type JournalPageData }    from "./buildJournalPages.js";
+import { buildDnD5eSystemFields,
+         type DnD5eSystemFields }  from "../dnd5e/statsBlock.js";
+import type { StatsFromPayload }   from "../dnd5e/types.js";
+import { log }                     from "../../lib/log.js";
 
 export const MODULE_ID = "dm-assistant-bridge";
 
@@ -34,22 +38,18 @@ export interface BridgeFlags {
 }
 
 /**
- * Subset of Foundry's ActorData we populate in v1. Stat-block fields
- * are conspicuously absent — `system: {}` for now. Tests assert this
- * boundary so S9 has a clear delta.
+ * Subset of Foundry's ActorData we populate. Biography is always
+ * present. dnd5e structured fields (`attributes`, `abilities`,
+ * `details.{cr,alignment,type}`, `traits`, `details.languages`) are
+ * present when the payload includes a validated `stats:` front-matter
+ * block (#10 / S9). Untyped extras carry through verbatim so future
+ * fields don't require a contract bump.
  */
 export interface ActorImportData {
   name:         string;
   type:         "npc";
   img:          string | null;          // resolved post-upload by the orchestrator
-  system: {
-    details: {
-      biography: {
-        value:  string;
-        public: string;
-      };
-    };
-  };
+  system: SystemFields;
   prototypeToken: {
     name:        string;
     texture: {
@@ -66,6 +66,22 @@ export interface ActorImportData {
     [MODULE_ID]: BridgeFlags;
   };
 }
+
+/**
+ * Foundry's `actor.system` is a polyglot shape per game system —
+ * dnd5e in v1, pf2e later (S12). The biography fields are universal
+ * (every system surfaces them under `details.biography`); everything
+ * else is per-ruleset and added by the appropriate translator.
+ *
+ * Modelled as `details.biography` always-present plus an extensible
+ * structure so dnd5e's `attributes` / `abilities` / `traits` / extra
+ * `details.*` slots can land alongside without a wider type rewrite.
+ */
+export type SystemFields = {
+  details: {
+    biography: { value: string; public: string };
+  } & Record<string, unknown>;
+} & Record<string, unknown>;
 
 export interface JournalImportData {
   name:       string;
@@ -89,6 +105,53 @@ export interface BuildOptions {
   contractVersion?:  string;            // typically threaded from /foundry/health
 }
 
+/**
+ * Merge per-ruleset structured fields into the actor's system block.
+ * Returns the merged SystemFields. v1 only handles `ruleset: "dnd5e"`;
+ * unknown rulesets log a warning + return the biography-only block.
+ */
+function buildSystemFields(
+  payload:    FoundryNpcResponse,
+  biography:  string,
+): SystemFields {
+  const baseSystem: SystemFields = {
+    details: { biography: { value: biography, public: biography } },
+  };
+
+  const rawStats = payload.front_matter.stats as StatsFromPayload | undefined;
+  if (!rawStats || typeof rawStats !== "object") {
+    return baseSystem;
+  }
+  if (rawStats.ruleset !== "dnd5e") {
+    log.warn(
+      `stats.ruleset="${rawStats.ruleset}" unsupported in v1 — skipping structured fields. ` +
+      `Biography still populates.`,
+    );
+    return baseSystem;
+  }
+
+  let dnd5e: DnD5eSystemFields;
+  try {
+    dnd5e = buildDnD5eSystemFields(rawStats);
+  } catch (e) {
+    log.warn("dnd5e stat-block translation failed; biography-only import", e);
+    return baseSystem;
+  }
+
+  // Merge: dnd5e structured fields plus the biography under details.
+  // details.* is the only sub-object we shallow-merge — every other
+  // top-level key from dnd5e (attributes / abilities / traits) lands
+  // directly on the system root.
+  return {
+    ...dnd5e,
+    details: {
+      ...dnd5e.details,
+      biography: baseSystem.details.biography,
+    },
+  } as SystemFields;
+}
+
+
 export function buildImportBundle(
   payload: FoundryNpcResponse,
   opts:    BuildOptions,
@@ -108,14 +171,7 @@ export function buildImportBundle(
     name: payload.display_name || payload.name || payload.slug,
     type: "npc",
     img:  null,    // orchestrator overwrites after FilePicker upload
-    system: {
-      details: {
-        biography: {
-          value:  biography,
-          public: biography,
-        },
-      },
-    },
+    system: buildSystemFields(payload, biography),
     prototypeToken: {
       name:        payload.display_name || payload.name || payload.slug,
       texture:     { src: null },

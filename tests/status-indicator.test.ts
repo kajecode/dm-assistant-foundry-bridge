@@ -57,8 +57,12 @@ describe("statusIndicator — mount target selection", () => {
     expect(el?.style.position).not.toBe("fixed");
   });
 
-  it("mounts as a list item <div> even when the list has no inner structure", () => {
-    const panel = buildPlayersPanel({ withInnerList: false });
+  it("falls back to body pill when #players exists but lacks the active-list inner structure", () => {
+    // The selector targets `#players-active .players-list` — when
+    // the panel is bare (no inner list), mount falls through to the
+    // body pill. Captures the contract the smoke screenshot confirmed
+    // in v0.1.0 + ratified in #16.
+    buildPlayersPanel({ withInnerList: false });
     mountStatusIndicator();
     const el = document.getElementById(EL_ID);
     expect(el?.tagName).toBe("DIV");
