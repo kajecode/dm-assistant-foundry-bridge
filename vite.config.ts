@@ -1,6 +1,20 @@
 import { defineConfig, type Plugin } from "vitest/config";
 import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+/**
+ * Bridge module version read from `module.json` at config-eval time
+ * (Foundry's source of truth for the artefact version). Injected
+ * into the bundle as `__BRIDGE_VERSION__` via Vite's `define` so
+ * the runtime status chip never has to query Foundry's module
+ * registry — `game.modules.get(id).version` was returning "0.0.0"
+ * in v13 worlds where Foundry's data layer hadn't fully reconciled
+ * the manifest. Build-time injection sidesteps that entirely.
+ */
+const moduleManifestPath = resolve(__dirname, "module.json");
+const moduleManifest     = JSON.parse(readFileSync(moduleManifestPath, "utf-8")) as { version: string };
+const BRIDGE_VERSION_LITERAL: string = JSON.stringify(moduleManifest.version);
 
 /**
  * Vite plugin that produces a Foundry-ready `dist/` directory.
@@ -65,6 +79,9 @@ function foundryDistAssets(): Plugin {
 
 export default defineConfig({
   plugins: [foundryDistAssets()],
+  define: {
+    __BRIDGE_VERSION__: BRIDGE_VERSION_LITERAL,
+  },
   build: {
     target: "es2022",
     sourcemap: true,
