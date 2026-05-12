@@ -14,6 +14,56 @@ dm-assistant `/foundry/*` endpoint family) via the
 `module.json`. Bumping that field is a breaking change for users running
 older dm-assistant deployments; flag it explicitly in the entry below.
 
+## [0.2.0] — 2026-05-12
+
+First-class structured NPC import for D&D 5e + modernised picker dialog.
+
+### Added
+
+- **D&D 5e stat-block translator** (#10). Consumes the structured
+  `stats:` data dm-assistant v0.22.x emits in the `/foundry/npc/{slug}`
+  response (sidecar YAML merged into `front_matter.stats`) and populates
+  the imported actor's `system.attributes.ac.{flat,calc}`,
+  `system.attributes.hp.{value,max,formula}`, `system.attributes.movement.*`,
+  `system.attributes.senses.ranges.*`, `system.abilities.{str,...}.value`,
+  `system.details.{cr,alignment,type.*}`, `system.traits.size`,
+  `system.traits.languages.{value,custom}` (with automatic standard /
+  invented language splitting), and `system.traits.{di,dr,dv,ci}.value`.
+  Verified against the dnd5e v5.x actor schema (Solyrian Keeper export).
+  CR normalisation handles fractional CRs ("1/4" → 0.25 etc.). Unknown
+  rulesets log a warning + fall back to biography-only — no crashes.
+- **`buildActorData` integration**: when `payload.front_matter.stats.ruleset
+  === "dnd5e"`, the dnd5e fields merge into `actor.system` alongside the
+  biography. Legacy markdown without `stats:` still imports
+  biography-only (unchanged).
+
+### Changed
+
+- **Picker dialog ports from v1 `Dialog` → `foundry.applications.api.DialogV2`** (#11).
+  Resolved via the same v13 namespace pattern used for `KeyboardManager` /
+  `FilePicker`. Clears the last remaining
+  "V1 Application framework is deprecated" warning from v0.1.0 smoke.
+  Button shape changes to an array; icons take class strings;
+  callback receives `(event, button, dialog)` with `dialog.element` as
+  the raw HTMLElement. `unwrapHtml` helper retained for defence-in-depth.
+
+### Dependencies
+
+No `min-api-contract-version` bump — still `0.1.0`. The structured
+`stats:` data ships under the same contract version (it's a payload-shape
+addition, not a removal or rename). Older dm-assistant deployments that
+don't emit `stats:` still produce valid imports (biography-only).
+
+### Tests
+
+- 29 new cases in `tests/dnd5e-statsBlock.test.ts` covering CR
+  normalisation, language splitting, full + minimum payloads, and the
+  ruleset guard.
+- 3 new cases in `tests/buildActorData.test.ts` covering the dnd5e
+  merge, the pf2e fallback, and legacy markdown.
+
+114 tests pass total.
+
 ## [0.1.1] — 2026-05-11
 
 ### Changed
