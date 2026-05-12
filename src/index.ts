@@ -73,6 +73,22 @@ function getMinContractVersion(): string {
   return typeof flag === "string" ? flag : "0.0.0";
 }
 
+/**
+ * Reads the bridge module's own version from `module.json` via
+ * Foundry's module registry. Used in the status chip's label so
+ * the DM sees the version they installed (matches Foundry's
+ * module list). Returns undefined when Foundry's registry doesn't
+ * expose the entry — chip then renders bare without a version tag.
+ */
+function getBridgeModuleVersion(): string | undefined {
+  type ModuleEntry = { version?: unknown };
+  type GameModules = { get: (id: string) => ModuleEntry | undefined };
+  const moduleEntry = (globalThis as unknown as { game: { modules: GameModules } })
+    .game.modules.get(MODULE_ID);
+  const v = moduleEntry?.version;
+  return typeof v === "string" ? v : undefined;
+}
+
 async function runProbe(): Promise<ProbeResult> {
   const baseUrl = getSetting<string>(SETTING.baseUrl);
   const apiKey  = getSetting<string>(SETTING.apiKey);
@@ -80,11 +96,16 @@ async function runProbe(): Promise<ProbeResult> {
   try {
     const health = await fetchHealth({ baseUrl, apiKey: apiKey || undefined });
     const minVer = getMinContractVersion();
+    const versions = {
+      bridge:      getBridgeModuleVersion(),
+      dmAssistant: health.dm_assistant_version,
+      apiContract: health.api_contract_version,
+    };
     if (compareSemver(health.api_contract_version, minVer) < 0) {
       setStatus({
-        state:   "outdated",
-        version: health.api_contract_version,
-        detail:  `Server contract v${health.api_contract_version} < bridge minimum v${minVer}. Upgrade dm-assistant.`,
+        state:    "outdated",
+        versions,
+        detail:   `Server contract v${health.api_contract_version} < bridge minimum v${minVer}. Upgrade dm-assistant.`,
       });
       return {
         ok:    false,
@@ -92,9 +113,8 @@ async function runProbe(): Promise<ProbeResult> {
       };
     }
     setStatus({
-      state:   "connected",
-      version: health.api_contract_version,
-      detail:  `dm-assistant ${health.dm_assistant_version} · contract v${health.api_contract_version}`,
+      state:    "connected",
+      versions,
     });
     return {
       ok:              true,

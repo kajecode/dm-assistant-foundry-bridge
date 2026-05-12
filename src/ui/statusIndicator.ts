@@ -22,10 +22,30 @@ import { log } from "../lib/log.js";
 
 export type StatusState = "unknown" | "probing" | "connected" | "unreachable" | "outdated";
 
+/**
+ * The three version sources the bridge tracks. Each comes from a
+ * different place and moves on a different cadence — see README's
+ * "Versioning" section for context.
+ */
+export interface BridgeVersions {
+  /** This module's version from `module.json`. The artefact a DM
+   *  installs and sees in Foundry's module list. Used in the chip
+   *  label so the user sees "what version is installed". */
+  bridge?:      string;
+  /** dm-assistant package version (from `/foundry/health`). The
+   *  Python service running on the server. Ticks fastest of the
+   *  three. Tooltip-only — not in the chip label. */
+  dmAssistant?: string;
+  /** API contract version (from `/foundry/health`). The HTTP wire
+   *  contract. Moves slowest; controls compatibility via the
+   *  bridge's declared `min-api-contract-version`. Tooltip-only. */
+  apiContract?: string;
+}
+
 interface StatusPayload {
-  state:    StatusState;
-  detail?:  string;
-  version?: string;
+  state:     StatusState;
+  detail?:   string;
+  versions?: BridgeVersions;
 }
 
 const EL_ID = "dm-assistant-bridge-status";
@@ -164,17 +184,49 @@ function applyPayload(p: StatusPayload): void {
   const label = currentEl.querySelector(".dab-status-label") as HTMLElement | null;
   if (dot) dot.style.background = STATE_TO_DOT[p.state];
   if (label) {
-    const versionTag = p.state === "connected" && p.version ? ` (v${p.version})` : "";
+    // Chip label appends the BRIDGE module version when connected —
+    // matches the DM's mental model ("what version did I install").
+    // The other two versions (dm-assistant, API contract) live in
+    // the tooltip so a glance at the chip stays uncluttered.
+    const versionTag = p.state === "connected" && p.versions?.bridge
+      ? ` v${p.versions.bridge}`
+      : "";
     label.textContent = `${MODULE_DISPLAY_NAME}${versionTag}`;
   }
-  // Tooltip carries the full state + detail. `detail` from
-  // `runProbe` already includes the multi-line CORS hint when the
-  // probe fails, so hovering the chip is enough to diagnose.
+  currentEl.title = buildTooltip(p);
+}
+
+/**
+ * Tooltip structure (newline-separated, since `title` renders as
+ * plain text in every browser):
+ *
+ *     DM Assistant Bridge: <state>
+ *
+ *     Bridge module: v0.2.0
+ *     dm-assistant: v0.23.0
+ *     API contract: v0.1.0
+ *
+ *     <detail line — error explanation, CORS hint, upgrade prompt>
+ *
+ * Empty sections (no versions, no detail) collapse out cleanly so
+ * the tooltip stays minimal in the unknown / probing states.
+ */
+function buildTooltip(p: StatusPayload): string {
   const stateLabel = STATE_TO_LABEL[p.state];
-  const versionTail = p.version ? ` · contract v${p.version}` : "";
-  currentEl.title = p.detail
-    ? `${MODULE_DISPLAY_NAME}: ${stateLabel}${versionTail}\n\n${p.detail}`
-    : `${MODULE_DISPLAY_NAME}: ${stateLabel}${versionTail}`;
+  const parts: string[] = [`${MODULE_DISPLAY_NAME}: ${stateLabel}`];
+  const versionBlock = buildVersionBlock(p.versions);
+  if (versionBlock) parts.push("", versionBlock);
+  if (p.detail)     parts.push("", p.detail);
+  return parts.join("\n");
+}
+
+function buildVersionBlock(v: BridgeVersions | undefined): string | null {
+  if (!v) return null;
+  const lines: string[] = [];
+  if (v.bridge)      lines.push(`Bridge module: v${v.bridge}`);
+  if (v.dmAssistant) lines.push(`dm-assistant: v${v.dmAssistant}`);
+  if (v.apiContract) lines.push(`API contract: v${v.apiContract}`);
+  return lines.length > 0 ? lines.join("\n") : null;
 }
 
 // Test-only: drops the singleton so isolated test cases don't leak

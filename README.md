@@ -56,7 +56,7 @@ Once configured, the module adds:
 1. **A sidebar button** ("Import from dm-assistant") that opens a picker — browse NPCs / Shops / Locations from your linked campaign, select what to import.
 2. **A `Ctrl+Shift+D` keybind** to open the same picker.
 3. **Right-click → Import dm-assistant counterpart** on any actor / journal that was previously imported — refreshes from the latest dm-assistant content.
-4. **A status indicator** in the bottom-right of the Foundry UI showing connection state (✓ connected / ✗ unreachable / ⚠ outdated bridge version).
+4. **A status indicator** inside Foundry's Players Online panel showing connection state (green = connected, red = unreachable, yellow = outdated, blue = probing). The label reads **DM Assistant Bridge v<bridge-version>** when connected — the bridge module's own version, matching what you see in Foundry's module list. Hover the chip for the full version breakdown (bridge module / dm-assistant / API contract) and any error detail.
 
 ## Architecture
 
@@ -165,9 +165,15 @@ Schemas authoritative in [`docs/foundry-templates/`](https://github.com/kajecode
 
 ### Versioning + compatibility
 
-- **Bridge version** (this repo) is the published artefact users install in Foundry.
-- **dm-assistant API contract version** is independent — declared in dm-assistant's `/foundry/health` response.
-- The bridge ships with a **minimum compatible API contract version** in `module.json`. On startup it probes `/foundry/health`; if the running dm-assistant is too old, the status indicator goes red and import is disabled until upgrade.
+Three independently-versioned surfaces. The status chip's tooltip lists all three so a DM can tell which side moved without grepping logs:
+
+| Source                          | Where it lives                                                                                                                                              | Cadence                                              |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| **Bridge module version**       | `module.json::version` in this repo; visible in Foundry's module list. Also the version shown in the chip label.                                           | Weeks between cuts.                                  |
+| **dm-assistant package version** | `dm_assistant_version` field on `/foundry/health`. The Python service running on the server.                                                                | Multiple patches per day during active development.  |
+| **API contract version**        | `api_contract_version` field on `/foundry/health`; rules in [`docs/foundry-api-contract.md`](https://github.com/kajecode/dm-assistant/blob/develop/docs/foundry-api-contract.md). | Slowest — only bumps when the wire shape changes.    |
+
+The bridge ships with a **minimum compatible API contract version** in `module.json` (`flags.dm-assistant-bridge.min-api-contract-version`). On startup it probes `/foundry/health`; if the running dm-assistant's contract version is older than the bridge's minimum, the status indicator goes yellow ("outdated") and import is disabled until upgrade.
 
 ## License
 
