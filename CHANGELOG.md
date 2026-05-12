@@ -14,18 +14,53 @@ dm-assistant `/foundry/*` endpoint family) via the
 `module.json`. Bumping that field is a breaking change for users running
 older dm-assistant deployments; flag it explicitly in the entry below.
 
-## [Unreleased]
+## [0.3.0] — Unreleased
+
+> ⚠ **Breaking for users on dm-assistant < 0.24.0.** `min-api-contract-version`
+> bumps `0.1.0 → 0.2.0` because the bridge now calls the unified
+> `/foundry/actor/{kind}/{slug}` endpoint introduced in that contract.
+> Older dm-assistant deployments will see the chip go yellow ("outdated").
+
+### Added
+
+- **Creature import flow** (#19). Bestiary entries (`creature_<slug>.md`
+  in dm-assistant) can now be pulled into Foundry as Actors (NPC type,
+  matching dnd5e's schema for monsters). Mirrors the NPC import path
+  end-to-end: biography + portrait, structured stats via the existing
+  D&D 5e translator (creatures inherit the #10 path unchanged because
+  the payload shape is identical), drift-overwrite on re-import.
+- **Kind toggle in the import picker.** Single picker dialog now has
+  NPC / Creature radios at the top; selection drives the orchestrator.
+  Both lists fetch concurrently when the picker opens; if one endpoint
+  fails the other still renders.
+- **`fetchActor`** API client function for the unified
+  `/foundry/actor/{kind}/{slug}` endpoint (dm-assistant API contract 0.2.0+).
+- **`listCreatures`** API client function for `/creature-generate/saved`.
 
 ### Changed
 
 - **Status chip label now shows the bridge module version** instead of the
-  API contract version (#18). The chip reads `DM Assistant Bridge v0.2.0`
+  API contract version (#18). The chip reads `DM Assistant Bridge v0.3.0`
   when connected — matching what the DM sees in Foundry's module list. The
   tooltip surfaces all three version sources explicitly: bridge module,
   dm-assistant package, API contract. Resolves the "what does `(v0.1.0)`
   mean?" confusion from the v0.22.x patch-storm smoke. Internal: the
   `StatusPayload.version` field was replaced with a richer
   `StatusPayload.versions` object (`{ bridge?, dmAssistant?, apiContract? }`).
+- **Drift identity now includes the entity kind.** Imported documents
+  carry `flags.dm-assistant-bridge.kind` of `npc-actor` / `npc-dm-notes` /
+  `creature-actor` / `creature-dm-notes`. An NPC and a Creature with the
+  same slug don't collide on re-import.
+- **`min-api-contract-version` bumped from 0.1.0 to 0.2.0** (#19, breaking
+  for users on dm-assistant deployments older than 0.24.0). Required for
+  the unified actor endpoint; old dm-assistant deployments keep the
+  legacy `/foundry/npc/{slug}` route working through the 0.2.x line via
+  a deprecation shim, but the bridge no longer calls it.
+- **`importNpc.ts` renamed to `importActor.ts`** and parameterized by
+  `kind`. The `importNpc` function survives as a thin back-compat shim
+  for console macros / external callers.
+- **Bridge calls `/foundry/actor/{kind}/{slug}`** for all actor imports
+  (was `/foundry/npc/{slug}`).
 
 ## [0.2.0] — 2026-05-12
 

@@ -8,8 +8,12 @@
  */
 
 import type {
+  ActorKind,
+  FoundryActorResponse,
   FoundryHealthResponse,
   FoundryNpcResponse,
+  SavedCreatureListResponse,
+  SavedCreatureSummary,
   SavedNpcListResponse,
   SavedNpcSummary,
 } from "./types.js";
@@ -124,17 +128,28 @@ export interface NpcFetchOptions extends ClientOptions {
   slug:       string;
 }
 
+export interface ActorFetchOptions extends ClientOptions {
+  campaignId: string;
+  slug:       string;
+  kind:       ActorKind;
+}
+
 /**
- * Fetch a single NPC's import payload. Mirrors
- * `GET /foundry/npc/{slug}?campaign_id=...&role=dm`.
+ * Fetch a single actor's import payload. Mirrors dm-assistant's
+ * `GET /foundry/actor/{kind}/{slug}?campaign_id=...&role=dm`
+ * introduced in API contract 0.2.0. Replaces the per-kind
+ * `/foundry/npc/{slug}` route (which still works as a shim on the
+ * server side but won't be called by this bridge after this change).
  */
-export async function fetchNpc(opts: NpcFetchOptions): Promise<FoundryNpcResponse> {
+export async function fetchActor(opts: ActorFetchOptions): Promise<FoundryActorResponse> {
   const base = normaliseBase(opts.baseUrl);
   if (!base)            throw new ApiError("baseUrl is empty", { kind: "config" });
   if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
   if (!opts.slug)       throw new ApiError("slug is empty", { kind: "config" });
+  if (!opts.kind)       throw new ApiError("kind is empty",   { kind: "config" });
 
-  const url    = `${base}/foundry/npc/${encodeURIComponent(opts.slug)}?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const url    = `${base}/foundry/actor/${encodeURIComponent(opts.kind)}/${encodeURIComponent(opts.slug)}`
+               + `?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
   const ctrl   = new AbortController();
   const timeoutMs = opts.timeoutMs ?? 10000;
   try {
@@ -146,7 +161,7 @@ export async function fetchNpc(opts: NpcFetchOptions): Promise<FoundryNpcRespons
     if (!res.ok) {
       throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
     }
-    const body = (await res.json()) as FoundryNpcResponse;
+    const body = (await res.json()) as FoundryActorResponse;
     if (typeof body.slug !== "string" || typeof body.kind !== "string") {
       throw new ApiError("Response missing slug/kind", { kind: "shape", url });
     }
@@ -161,6 +176,16 @@ export async function fetchNpc(opts: NpcFetchOptions): Promise<FoundryNpcRespons
       { kind: "network", url, cause: e },
     );
   }
+}
+
+/**
+ * Fetch a single NPC's import payload. **Deprecated** since
+ * `fetchActor({kind: "npc", ...})` lands — thin wrapper kept for
+ * back-compat in case anything else in the codebase depends on it.
+ * New callers should use `fetchActor` directly.
+ */
+export async function fetchNpc(opts: NpcFetchOptions): Promise<FoundryNpcResponse> {
+  return fetchActor({ ...opts, kind: "npc" });
 }
 
 export interface ListNpcsOptions extends ClientOptions {
@@ -190,6 +215,50 @@ export async function listNpcs(opts: ListNpcsOptions): Promise<SavedNpcSummary[]
       throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
     }
     const body = (await res.json()) as SavedNpcListResponse;
+    if (!Array.isArray(body.saved)) {
+      throw new ApiError("Response missing 'saved' array", { kind: "shape", url });
+    }
+    return body.saved;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+export interface ListCreaturesOptions extends ClientOptions {
+  campaignId: string;
+}
+
+/**
+ * Fetch the picker's Creature list. Uses dm-assistant's existing
+ * `/creature-generate/saved` endpoint (parallels `/npc-generate/saved`).
+ * The summary shape lacks `region` since creatures aren't tied to a
+ * location the way NPCs are.
+ */
+export async function listCreatures(opts: ListCreaturesOptions): Promise<SavedCreatureSummary[]> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty", { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+
+  const url    = `${base}/creature-generate/saved?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 5000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+    }
+    const body = (await res.json()) as SavedCreatureListResponse;
     if (!Array.isArray(body.saved)) {
       throw new ApiError("Response missing 'saved' array", { kind: "shape", url });
     }
