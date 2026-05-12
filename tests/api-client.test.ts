@@ -269,8 +269,8 @@ describe("listCreatures", () => {
       expect.anything(),
     );
     expect(r).toHaveLength(2);
-    expect(r[0].slug).toBe("ash-wraith");
-    expect(r[1].has_image).toBe(false);
+    expect(r[0]?.slug).toBe("ash-wraith");
+    expect(r[1]?.has_image).toBe(false);
   });
 
   it("throws on shape mismatch (missing saved array)", async () => {
