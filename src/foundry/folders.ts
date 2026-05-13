@@ -154,6 +154,19 @@ export async function resolveDmNotesFolderId(entityKind: ActorKind): Promise<str
   return findOrCreateFolder(folderNameFor(entityKind, "dm-notes"), "JournalEntry");
 }
 
+/**
+ * Resolve the JournalEntry-folder ID for a shop / location / faction
+ * import. Each gets its own `<prefix> — Shops` / `<prefix> — Locations`
+ * folder so the DM's Journal sidebar stays browseable by kind. Label
+ * vocab was pre-wired in v0.3.1's `KIND_TO_LABEL`; this helper just
+ * threads the "journal" role through.
+ */
+export async function resolveJournalFolderId(
+  entityKind: "shop" | "location" | "faction",
+): Promise<string> {
+  return findOrCreateFolder(folderNameFor(entityKind, "journal"), "JournalEntry");
+}
+
 // Test-only hook: lets unit tests inject fake `game.folders` +
 // `Folder` globals without monkey-patching the production module.
 // Not part of the runtime API.
