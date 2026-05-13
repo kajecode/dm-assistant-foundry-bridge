@@ -9,9 +9,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   compareSemver,
+  fetchActor,
   fetchHealth,
   fetchImageBytes,
   fetchNpc,
+  listCreatures,
   listNpcs,
 } from "../src/api/client.js";
 
@@ -151,6 +153,136 @@ describe("fetchHealth", () => {
   });
 });
 
+describe("fetchActor", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("hits /foundry/actor/{kind}/{slug} with kind=creature", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          slug:         "ash-wraith",
+          kind:         "creature",
+          name:         "Ash-Wraith",
+          display_name: "Ash-Wraith",
+          portrait_url: null,
+          thumb_url:    null,
+          front_matter: {},
+          sections:     [],
+          dm_sections:  [],
+          audit:        { source_path: "p", modified_at: "t" },
+        }),
+        { status: 200 },
+      ),
+    );
+    const r = await fetchActor({
+      baseUrl:    "http://api/",
+      campaignId: "c",
+      slug:       "ash-wraith",
+      kind:       "creature",
+    });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/foundry/actor/creature/ash-wraith?campaign_id=c&role=dm",
+      expect.anything(),
+    );
+    expect(r.slug).toBe("ash-wraith");
+    expect(r.kind).toBe("creature");
+  });
+
+  it("hits /foundry/actor/{kind}/{slug} with kind=npc", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          slug: "aldric", kind: "npc", name: "Aldric", display_name: "Aldric",
+          portrait_url: null, thumb_url: null, front_matter: {},
+          sections: [], dm_sections: [],
+          audit: { source_path: "p", modified_at: "t" },
+        }),
+        { status: 200 },
+      ),
+    );
+    await fetchActor({ baseUrl: "http://api", campaignId: "c", slug: "aldric", kind: "npc" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/foundry/actor/npc/aldric?campaign_id=c&role=dm",
+      expect.anything(),
+    );
+  });
+
+  it("rejects with kind=config when the actor kind is empty", async () => {
+    await expect(
+      fetchActor({ baseUrl: "http://x", campaignId: "c", slug: "s", kind: "" as unknown as "npc" }),
+    ).rejects.toMatchObject({ kind: "config" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("URL-encodes slug and campaignId", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          slug: "s", kind: "creature", name: "", display_name: "",
+          portrait_url: null, thumb_url: null, front_matter: {},
+          sections: [], dm_sections: [],
+          audit: { source_path: "", modified_at: "" },
+        }),
+        { status: 200 },
+      ),
+    );
+    await fetchActor({ baseUrl: "http://x", campaignId: "a b", slug: "x/y", kind: "creature" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://x/foundry/actor/creature/x%2Fy?campaign_id=a%20b&role=dm",
+      expect.anything(),
+    );
+  });
+});
+
+describe("listCreatures", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("hits /creature-generate/saved with campaign_id + role=dm", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          saved: [
+            { slug: "ash-wraith", filename: "creature_ash-wraith.md", name: "Ash-Wraith", modified_at: "t1", has_image: true,  thumb_url: "/api/creature-generate/image/ash-wraith/thumb" },
+            { slug: "fae-stalker", filename: "creature_fae-stalker.md", name: "Fae Stalker", modified_at: "t2", has_image: false, thumb_url: "" },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const r = await listCreatures({ baseUrl: "http://api/", campaignId: "c" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/creature-generate/saved?campaign_id=c&role=dm",
+      expect.anything(),
+    );
+    expect(r).toHaveLength(2);
+    expect(r[0]?.slug).toBe("ash-wraith");
+    expect(r[1]?.has_image).toBe(false);
+  });
+
+  it("throws on shape mismatch (missing saved array)", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({}), { status: 200 }),
+    );
+    await expect(
+      listCreatures({ baseUrl: "http://x", campaignId: "c" }),
+    ).rejects.toMatchObject({ kind: "shape" });
+  });
+});
+
 describe("fetchNpc", () => {
   const fetchSpy = vi.fn();
   beforeEach(() => {
@@ -161,7 +293,11 @@ describe("fetchNpc", () => {
     vi.unstubAllGlobals();
   });
 
-  it("hits /foundry/npc/{slug} with campaign_id + role=dm", async () => {
+  it("delegates to /foundry/actor/npc/{slug} (contract 0.2.0 unified route)", async () => {
+    // fetchNpc is a back-compat shim that calls fetchActor with
+    // kind="npc". The wire URL is the new unified one — the
+    // deprecated /foundry/npc/{slug} shim on dm-assistant still
+    // works but the bridge stops calling it post-bridge#19.
     fetchSpy.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -185,7 +321,7 @@ describe("fetchNpc", () => {
       slug:       "aldric-harwick",
     });
     expect(fetchSpy).toHaveBeenCalledWith(
-      "http://api/foundry/npc/aldric-harwick?campaign_id=c&role=dm",
+      "http://api/foundry/actor/npc/aldric-harwick?campaign_id=c&role=dm",
       expect.anything(),
     );
     expect(r.slug).toBe("aldric-harwick");
@@ -217,7 +353,7 @@ describe("fetchNpc", () => {
     );
     await fetchNpc({ baseUrl: "http://x", campaignId: "a b", slug: "x/y" });
     expect(fetchSpy).toHaveBeenCalledWith(
-      "http://x/foundry/npc/x%2Fy?campaign_id=a%20b&role=dm",
+      "http://x/foundry/actor/npc/x%2Fy?campaign_id=a%20b&role=dm",
       expect.anything(),
     );
   });

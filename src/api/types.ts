@@ -29,6 +29,12 @@ export interface FoundrySection {
   body_md: string;
 }
 
+/** Kinds the unified `/foundry/actor/{kind}/{slug}` endpoint serves
+ *  (dm-assistant contract 0.2.0+). Both translate to a Foundry Actor
+ *  of type `npc` in dnd5e — monsters share the same Actor type as
+ *  NPCs. PC joins later when dm-assistant#248 stabilises. */
+export type ActorKind = "npc" | "creature";
+
 export interface SavedNpcSummary {
   slug:        string;
   name:        string;
@@ -42,9 +48,25 @@ export interface SavedNpcListResponse {
   saved: SavedNpcSummary[];
 }
 
-export interface FoundryNpcResponse {
+/** Item shape from `/creature-generate/saved`. Mirrors the NPC summary
+ *  except creatures have no `region` field (creatures aren't tied to
+ *  a location in the same way NPCs are). */
+export interface SavedCreatureSummary {
+  slug:        string;
+  name:        string;
+  filename:    string;
+  modified_at: string;
+  has_image:   boolean;
+  thumb_url:   string;
+}
+
+export interface SavedCreatureListResponse {
+  saved: SavedCreatureSummary[];
+}
+
+export interface FoundryActorResponse {
   slug:           string;
-  kind:           "npc";
+  kind:           ActorKind;
   name:           string;
   display_name:   string;
   portrait_url:   string | null;
@@ -57,3 +79,8 @@ export interface FoundryNpcResponse {
     modified_at: string;
   };
 }
+
+/** Back-compat alias — same shape as `FoundryActorResponse` with
+ *  `kind` allowed to widen beyond "npc" (dm-assistant 0.2.0 unified
+ *  the endpoint). Callers pinned to this name keep working. */
+export type FoundryNpcResponse = FoundryActorResponse;
