@@ -13,8 +13,7 @@ export const SETTING = {
   apiKey:           "apiKey",
   campaignId:       "campaignId",
   useCampaignCodex: "useCampaignCodex",
-  actorFolder:      "actorFolder",
-  journalFolder:    "journalFolder",
+  folderPrefix:     "folderPrefix",
   dataPathPrefix:   "dataPathPrefix",
 } as const;
 

@@ -14,6 +14,39 @@ dm-assistant `/foundry/*` endpoint family) via the
 `module.json`. Bumping that field is a breaking change for users running
 older dm-assistant deployments; flag it explicitly in the entry below.
 
+## [0.3.1] — 2026-05-13
+
+### Added
+
+- **Kind-aware folder organization for imported documents** (#24). Imported
+  actors and journals now land in per-kind sub-folders rather than the root of
+  the Foundry sidebar. NPCs go in `DM Assistant — NPCs`, Creatures in
+  `DM Assistant — Creatures`, and their companion DM-notes journals in
+  sibling folders (`DM Assistant — NPC DM Notes` / `DM Assistant — Creature
+  DM Notes`). Folder names are derived from a new **Import folder prefix**
+  setting; folders are created on first import (idempotent) and re-found on
+  re-import. Forward-compat labels for `Shops` / `Locations` / `Factions` ship
+  in the helper now so the shop + location import flows (#25, #26) can land
+  without touching folder code. Re-imports move existing actors/journals into
+  the kind folder if they aren't already there.
+
+### Changed
+
+- **Settings rename**: replaced the unused `actorFolder` + `journalFolder`
+  free-text inputs with a single `folderPrefix` setting (default
+  `DM Assistant`). Existing values on those old settings are silently
+  ignored — the new design supersedes them. The old settings did nothing in
+  v0.3.0 and earlier (dead UI), so no operational migration is required
+  beyond setting the new prefix if you want something other than `DM Assistant`.
+
+### Migration
+
+Pre-existing actors / journals imported by v0.3.0 or earlier stay where they
+are (at the root). New imports go into the kind folders. To clean up, drag
+existing imports into the new folders manually — Foundry preserves the
+bridge's drift-tracking flags on move, so subsequent re-imports continue to
+find and update them.
+
 ## [0.3.0] — 2026-05-12
 
 > ⚠ **Breaking for users on dm-assistant < 0.24.0.** `min-api-contract-version`

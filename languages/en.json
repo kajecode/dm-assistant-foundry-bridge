@@ -17,13 +17,9 @@
         "name": "Use Campaign Codex when available",
         "hint": "When checked and Campaign Codex is installed, route imports through CC's sheet types. Uncheck to always use native Foundry documents."
       },
-      "actorFolder": {
-        "name": "Default actor folder",
-        "hint": "Foundry folder name where newly-imported actors are placed."
-      },
-      "journalFolder": {
-        "name": "Default journal folder",
-        "hint": "Foundry folder name where newly-imported journals are placed."
+      "folderPrefix": {
+        "name": "Import folder prefix",
+        "hint": "Prefix for the auto-created Foundry folders that group imported content by kind. Example: 'DM Assistant' produces 'DM Assistant — NPCs', 'DM Assistant — Creatures', 'DM Assistant — Shops', etc. Empty falls back to 'DM Assistant'."
       },
       "dataPathPrefix": {
         "name": "Foundry Data/ upload prefix",

@@ -72,22 +72,18 @@ export function registerSettings(onConnChange: OnConnectionSettingChange): void 
     default: true,
   });
 
-  game.settings.register(MODULE_ID, SETTING.actorFolder, {
-    name:    "DM-ASSISTANT-BRIDGE.settings.actorFolder.name",
-    hint:    "DM-ASSISTANT-BRIDGE.settings.actorFolder.hint",
+  // Single folder prefix replaces the pre-v0.3.1 actorFolder +
+  // journalFolder settings. The bridge auto-creates per-kind
+  // sub-folders ("<prefix> — NPCs", "<prefix> — Creatures",
+  // "<prefix> — NPC DM Notes", etc.) so imports stay browseable as
+  // a campaign grows. See `src/foundry/folders.ts`.
+  game.settings.register(MODULE_ID, SETTING.folderPrefix, {
+    name:    "DM-ASSISTANT-BRIDGE.settings.folderPrefix.name",
+    hint:    "DM-ASSISTANT-BRIDGE.settings.folderPrefix.hint",
     scope:   "world",
     config:  true,
     type:    String,
-    default: "dm-assistant Imports",
-  });
-
-  game.settings.register(MODULE_ID, SETTING.journalFolder, {
-    name:    "DM-ASSISTANT-BRIDGE.settings.journalFolder.name",
-    hint:    "DM-ASSISTANT-BRIDGE.settings.journalFolder.hint",
-    scope:   "world",
-    config:  true,
-    type:    String,
-    default: "dm-assistant Imports",
+    default: "DM Assistant",
   });
 
   game.settings.register(MODULE_ID, SETTING.dataPathPrefix, {

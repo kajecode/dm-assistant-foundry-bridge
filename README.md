@@ -44,10 +44,24 @@ After enabling the module, open **Game Settings → Configure Settings → Modul
 | **dm-assistant API key** | Optional; required if your dm-assistant instance is exposed beyond localhost. Set the corresponding key in the dm-assistant settings overlay (`PUT /settings/foundry`). | empty |
 | **Campaign ID** | The dm-assistant campaign to pull from. Visible in the dm-assistant sidebar. | (none — must be set) |
 | **Use Campaign Codex when available** | When checked + CC is installed, route imports through CC's sheet types. Uncheck to always use native Foundry documents. | checked |
-| **Default actor folder** | Foundry folder name for newly-imported actors. | `dm-assistant Imports` |
-| **Default journal folder** | Foundry folder name for newly-imported journals. | `dm-assistant Imports` |
+| **Import folder prefix** | Prefix for the auto-created per-kind folders that group imports in the Foundry sidebar (see below). | `DM Assistant` |
 
 A **Test Connection** button next to the base URL pings `/health` to verify reachability before you try an actual import.
+
+### Folder organization
+
+Imports are grouped by kind into auto-created Foundry folders. With the default prefix `DM Assistant`, the bridge produces:
+
+| dm-assistant kind | Foundry sidebar | Folder |
+| --- | --- | --- |
+| NPC | Actors | `DM Assistant — NPCs` |
+| Creature | Actors | `DM Assistant — Creatures` |
+| NPC DM-notes journal | Journal Entries | `DM Assistant — NPC DM Notes` |
+| Creature DM-notes journal | Journal Entries | `DM Assistant — Creature DM Notes` |
+| Shop | Journal Entries | `DM Assistant — Shops` _(once shop import ships in v0.4.x)_ |
+| Location | Journal Entries | `DM Assistant — Locations` _(once location import ships)_ |
+
+Folders are created on first import (idempotent — re-imports find the existing folder). DM-notes journals sit in sibling folders rather than co-located with their parent actor so the Actor sidebar stays focused on draggable tokens. You can manually rename folders in Foundry after the fact; the bridge will create a new auto-named folder on next import if you do — the convention is a starting point, not a lock-in.
 
 ## Using the bridge
 

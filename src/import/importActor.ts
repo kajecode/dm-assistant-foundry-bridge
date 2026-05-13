@@ -36,6 +36,7 @@ import {
   withImagePaths,
   type PersistResult,
 } from "../foundry/documents.js";
+import { resolveActorFolderId, resolveDmNotesFolderId } from "../foundry/folders.js";
 import { uploadToFoundry } from "../foundry/upload.js";
 import { log } from "../lib/log.js";
 
@@ -100,12 +101,28 @@ export async function importActor(opts: ImportActorOptions): Promise<ImportActor
     });
   }
 
-  const actorWithImages = withImagePaths(bundle.actor, portraitPath, thumbPath);
+  // Resolve kind-aware folder IDs before persisting. Idempotent —
+  // the folder is created on first import, re-found on subsequent
+  // imports (bridge#24). Sibling folders for actors vs DM-notes
+  // journals keep the actor sidebar uncluttered. We only resolve
+  // the DM-notes folder when there's actually a journal to place,
+  // so a creature with no DM sections doesn't pre-create an empty
+  // "<prefix> — Creature DM Notes" folder.
+  const actorFolderId   = await resolveActorFolderId(opts.kind);
+  const dmNotesFolderId = bundle.journal ? await resolveDmNotesFolderId(opts.kind) : null;
+
+  const actorWithImages = {
+    ...withImagePaths(bundle.actor, portraitPath, thumbPath),
+    folder: actorFolderId,
+  };
   const actorResult     = await createOrUpdateActor(actorWithImages);
 
   let journalResult: PersistResult | "skipped" | "deleted";
   if (bundle.journal) {
-    journalResult = await createOrUpdateJournal(bundle.journal);
+    journalResult = await createOrUpdateJournal({
+      ...bundle.journal,
+      folder: dmNotesFolderId,
+    });
   } else {
     // Payload has no dm_sections — drop any previously-imported
     // companion journal so re-import is consistent with source.
