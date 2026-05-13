@@ -77,6 +77,13 @@ export interface ActorImportData {
     bar1:        { attribute: "attributes.hp" };
   };
   ownership:    { default: 0 };           // GM-default; no player visibility
+  /** Foundry folder ID for kind-aware placement (bridge#24). The
+   *  orchestrator resolves this via `foundry/folders.ts` before
+   *  persisting. Omitted in unit-test fixtures that don't care
+   *  about folder routing; Foundry treats null/undefined as
+   *  "place at root", preserving the pre-v0.3.1 behaviour for
+   *  callers that haven't been updated. */
+  folder?:      string | null;
   flags: {
     [MODULE_ID]: BridgeFlags;
   };
@@ -102,6 +109,12 @@ export interface JournalImportData {
   name:       string;
   pages:      JournalPageData[];
   ownership:  { default: 0 };
+  /** Foundry folder ID for kind-aware placement (bridge#24).
+   *  DM-notes journals land in a sibling-of-actors folder (e.g.
+   *  "<prefix> — NPC DM Notes") so the actor folders stay focused
+   *  on draggable tokens. Same null/undefined fallback semantics
+   *  as `ActorImportData.folder`. */
+  folder?:    string | null;
   flags: {
     [MODULE_ID]: BridgeFlags;
   };
