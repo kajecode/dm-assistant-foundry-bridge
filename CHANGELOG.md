@@ -14,6 +14,95 @@ dm-assistant `/foundry/*` endpoint family) via the
 `module.json`. Bumping that field is a breaking change for users running
 older dm-assistant deployments; flag it explicitly in the entry below.
 
+## [0.4.0] — 2026-05-13
+
+> ⚠ **Breaking for users on dm-assistant < 0.25.0.** `min-api-contract-version`
+> bumps `0.2.0 → 0.3.0` because the bridge now calls the shop + location
+> endpoints introduced in that contract version. Older dm-assistant
+> deployments will see the chip go yellow ("outdated"). dm-assistant v0.25.0
+> ships with the matching contract — upgrade the server first.
+
+### Added
+
+- **Shop import flow** (#25). Pulls a saved shop from
+  dm-assistant's `GET /foundry/shop/{slug}` (introduced in
+  dm-assistant v0.25.0 / contract 0.3.0) and writes a Foundry
+  `JournalEntry` with one page per dm-assistant section. Public
+  sections (`Shop Name & Type`, `Inventory`, `Special & Rare
+  Items`, etc.) live on public-ownership pages; DM-only sections
+  (`Shop's Secret`, `Proprietor: Motivation & Secret`, etc.) live
+  on GM-locked pages.
+- **Location import flow** (#26). Same orchestrator as shop — pulls
+  from `GET /foundry/location/{slug}` and writes a `JournalEntry`.
+  DM-section routing via the location's heading allowlist (`Secrets
+  & Hidden Features`, `Adventure Hooks`).
+- **Picker kind toggle gains Shop + Location radios.** Same dialog
+  as v0.3.x — pick a kind, filter by name, pick an entry, import.
+  All four lists (NPCs, Creatures, Shops, Locations) fetch
+  concurrently when the picker opens.
+- **Folder placement for shops + locations.** `DM Assistant —
+  Shops` (Foundry `JournalEntry` folder) and `DM Assistant —
+  Locations` (also `JournalEntry`). The folder labels were
+  pre-wired in v0.3.1's `KIND_TO_LABEL`; this release activates
+  them via the new `resolveJournalFolderId()` helper.
+- **Per-kind drift identity.** Bridge flags carry
+  `kind: "shop-journal"` / `"location-journal"` so a shop journal
+  doesn't collide with a location journal sharing the same slug.
+- **`fetchShop` + `listShops` + `fetchLocation` + `listLocations`**
+  API client functions. `fetchShop` consumes `/foundry/shop/{slug}`;
+  `listShops` consumes `/shop-generate/saved`. Symmetric for
+  locations.
+
+- **Targeted API-key error hints in the status chip / Test Connection
+  panel** (#28). When dm-assistant returns a 401 with the structured
+  `detail.error` discriminant from dm-assistant#489 (contract
+  0.3.0+), the bridge surfaces:
+  - `missing_api_key` → "API key required" with module-settings
+    guidance
+  - `invalid_api_key` → "API key mismatch" calling out typo /
+    rotation / whitespace-in-paste as common causes
+  Older dm-assistant deployments without the structured 401 fall
+  back to the generic "Server demanded authentication" copy from
+  v0.3.x — no regression.
+
+### Changed
+
+- **`min-api-contract-version` bumped from 0.2.0 to 0.3.0** (#25 /
+  #26 — breaking for dm-assistant deployments older than 0.25.0).
+  Required for the shop + location endpoints. Older dm-assistant
+  servers don't expose those routes.
+- **`ApiError` carries optional `authError` + `authHint` fields.**
+  Populated automatically by the API client when a 401 response
+  body has a `detail.error` / `detail.hint` discriminant.
+
+### Internal
+
+- **Unified `importJournal` orchestrator** at
+  `src/import/importJournal.ts` covering shop + location with a
+  per-kind branch on `payload.kind`. Same lifecycle as
+  `importActor` (fetch → build → upload image → resolve folder →
+  create-or-update). Saves ~50% of the duplication two separate
+  orchestrators would have introduced.
+- **Unified `buildJournalBundle` translator** at
+  `src/translators/common/buildJournalData.ts`. Pure data — no
+  Foundry runtime calls. Per-kind metadata rendering: shop
+  surfaces `shop_type` + `region` + proprietor cross-link;
+  location surfaces `region` + `area` + related_* cross-links.
+- **`FlagKind` widened** to cover `shop-journal` +
+  `location-journal`. `flagKindFor()` now accepts the wider
+  `entityKind` + `role` pair without changing the actor-side
+  call sites.
+
+### Tests
+
+12 new cases in `tests/buildJournalData.test.ts` covering shop +
+location page ordering, metadata-header rendering, proprietor +
+related cross-link emission with @UUID placeholder + slug-hint
+comments, HTML escaping defence, flag-kind stamping, null-image
+fallback. 3 new cases in `tests/error-hints.test.ts` for the
+auth-discriminant branches (missing_api_key / invalid_api_key /
+unknown forward-compat). 153 tests pass total.
+
 ## [0.3.1] — 2026-05-13
 
 ### Added

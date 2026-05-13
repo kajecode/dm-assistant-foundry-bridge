@@ -77,6 +77,39 @@ const EXPLAINERS: Record<ApiErrorKind, (err: ApiError) => ErrorHint> = {
   },
 
   http: (err) => {
+    // 401 with a structured `detail.error` discriminant (dm-assistant
+    // contract 0.3.0+) gets a targeted hint per the bridge#28 mapping.
+    // Missing-vs-wrong key are distinguishable so the operator's next
+    // action is unambiguous.
+    if (err.status === 401 && err.authError) {
+      if (err.authError === "missing_api_key") {
+        return {
+          message: "API key required",
+          detail: [
+            "dm-assistant is configured with FOUNDRY_API_KEY but the bridge",
+            "isn't sending one. Open the module settings panel and enter the",
+            "same key value that's set on the server.",
+            "",
+            err.authHint ?? "",
+          ].filter(Boolean).join("\n"),
+        };
+      }
+      if (err.authError === "invalid_api_key") {
+        return {
+          message: "API key mismatch",
+          detail: [
+            "The X-API-Key header value the bridge sent doesn't match",
+            "dm-assistant's FOUNDRY_API_KEY env var. Common causes:",
+            "  - Typo in either the server env or the bridge setting",
+            "  - Recent rotation on one side but not the other",
+            "  - Leading/trailing whitespace (both sides trim, but copy-paste",
+            "    from terminals can still introduce non-printables)",
+            "",
+            err.authHint ?? "",
+          ].filter(Boolean).join("\n"),
+        };
+      }
+    }
     const lines = [
       `HTTP ${err.status} from ${err.url ?? "(no url)"}`,
       "",
@@ -85,6 +118,9 @@ const EXPLAINERS: Record<ApiErrorKind, (err: ApiError) => ErrorHint> = {
         : err.status === 404
         ? "Endpoint not found. Confirm the base URL points at dm-assistant and includes the /api prefix if your nginx routes it that way."
         : err.status === 401
+        // No structured discriminant from the server — older
+        // dm-assistant (pre-v0.25.0) doesn't emit one, OR the
+        // response wasn't parseable JSON. Generic guidance.
         ? "Server demanded authentication. Set the dm-assistant API key in the settings panel."
         : "Server returned an error response. Check dm-assistant's logs for the matching request.",
     ];

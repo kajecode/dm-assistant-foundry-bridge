@@ -2,7 +2,7 @@
   "id": "dm-assistant-bridge",
   "title": "DM Assistant Bridge",
   "description": "Imports content from a running dm-assistant instance into your Foundry world — NPCs as Actors, shops and locations as Journal Entries, with first-class support for Campaign Codex when installed.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "compatibility": {
     "minimum": "13",
     "verified": "13",
@@ -47,7 +47,7 @@
   },
   "flags": {
     "dm-assistant-bridge": {
-      "min-api-contract-version": "0.2.0",
+      "min-api-contract-version": "0.3.0",
       "comment": "Probed against dm-assistant's GET /foundry/health on startup. Status indicator goes red when the running dm-assistant is older than this; import is disabled until the operator upgrades."
     }
   }

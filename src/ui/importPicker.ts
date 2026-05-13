@@ -10,21 +10,38 @@
  * console-noise item from the v0.1.0 smoke.
  */
 
-import type { ActorKind, SavedCreatureSummary, SavedNpcSummary } from "../api/types.js";
-import { listCreatures, listNpcs } from "../api/client.js";
+import type {
+  ActorKind,
+  JournalKind,
+  SavedCreatureSummary,
+  SavedLocationSummary,
+  SavedNpcSummary,
+  SavedShopSummary,
+} from "../api/types.js";
+import {
+  listCreatures,
+  listLocations,
+  listNpcs,
+  listShops,
+} from "../api/client.js";
 import { importActor } from "../import/importActor.js";
+import { importJournal } from "../import/importJournal.js";
 import { getSetting } from "../settings/register.js";
 import { SETTING } from "../settings/keys.js";
 import { log } from "../lib/log.js";
 
-/** Summary shape the picker renders. Unifies NPC + Creature
- *  summaries — Creatures lack `region` so it's optional here. */
+/** Anything the picker shows under a radio. Unifies NPC / Creature /
+ *  Shop / Location summaries. */
 interface PickerRow {
   slug:        string;
   name:        string;
-  region?:     string;        // present for NPCs, absent for Creatures
+  region?:     string;        // present for NPCs / shops with region front-matter
   modified_at: string;
 }
+
+/** All four kinds the picker can import. Drives the kind toggle, the
+ *  list dispatch, and the orchestrator routing. */
+type PickerKind = ActorKind | JournalKind;
 
 // ─── DialogV2 namespace resolver ─────────────────────────────────────────────
 
@@ -92,7 +109,15 @@ function creatureToRow(c: SavedCreatureSummary): PickerRow {
   return { slug: c.slug, name: c.name, modified_at: c.modified_at };
 }
 
-function rowHtml(row: PickerRow, kind: ActorKind): string {
+function shopToRow(s: SavedShopSummary): PickerRow {
+  return { slug: s.slug, name: s.name, modified_at: s.modified_at };
+}
+
+function locationToRow(l: SavedLocationSummary): PickerRow {
+  return { slug: l.slug, name: l.name, modified_at: l.modified_at };
+}
+
+function rowHtml(row: PickerRow, kind: PickerKind): string {
   const region = row.region ? ` <span class="dab-region">(${escape(row.region)})</span>` : "";
   return `
     <li class="dab-actor-row" data-kind="${kind}" data-slug="${escape(row.slug)}">
@@ -104,7 +129,7 @@ function rowHtml(row: PickerRow, kind: ActorKind): string {
   `;
 }
 
-function listHtml(rows: PickerRow[], kind: ActorKind, emptyMsg: string): string {
+function listHtml(rows: PickerRow[], kind: PickerKind, emptyMsg: string): string {
   if (rows.length === 0) {
     return `<p class="dab-empty" data-kind="${kind}">${emptyMsg}</p>`;
   }
@@ -116,15 +141,21 @@ function listHtml(rows: PickerRow[], kind: ActorKind, emptyMsg: string): string 
   `;
 }
 
-function buildBody(npcs: PickerRow[], creatures: PickerRow[]): string {
-  // Kind toggle stays sticky at top; the two lists are siblings —
-  // CSS shows only the active one. Default selection is NPC because
-  // it's the higher-volume kind in practice (most campaigns have
-  // many NPCs and only a handful of bestiary creatures).
+function buildBody(
+  npcs:      PickerRow[],
+  creatures: PickerRow[],
+  shops:     PickerRow[],
+  locations: PickerRow[],
+): string {
+  // Kind toggle stays sticky at top; four lists are siblings — CSS
+  // shows only the active one. Default selection is NPC because it's
+  // the highest-volume kind in practice. Shops + Locations are
+  // journal-flavoured (#25 / #26 — bridge v0.4.0); NPCs + Creatures
+  // are actor-flavoured.
   return `
     <div style="display:flex;flex-direction:column;gap:8px;max-height:480px;">
       <fieldset class="dab-kind-toggle"
-                style="border:0;padding:0;margin:0;display:flex;gap:16px;">
+                style="border:0;padding:0;margin:0;display:flex;gap:16px;flex-wrap:wrap;">
         <legend style="margin-bottom:4px;font-weight:600;">Import</legend>
         <label style="cursor:pointer;">
           <input type="radio" name="dab-kind" value="npc" checked /> NPC
@@ -134,6 +165,14 @@ function buildBody(npcs: PickerRow[], creatures: PickerRow[]): string {
           <input type="radio" name="dab-kind" value="creature" /> Creature
           <span style="opacity:0.7">(${creatures.length})</span>
         </label>
+        <label style="cursor:pointer;">
+          <input type="radio" name="dab-kind" value="shop" /> Shop
+          <span style="opacity:0.7">(${shops.length})</span>
+        </label>
+        <label style="cursor:pointer;">
+          <input type="radio" name="dab-kind" value="location" /> Location
+          <span style="opacity:0.7">(${locations.length})</span>
+        </label>
       </fieldset>
       <input type="search" class="dab-actor-filter" placeholder="Filter by name…"
              style="padding:4px 8px;width:100%;" />
@@ -142,6 +181,10 @@ function buildBody(npcs: PickerRow[], creatures: PickerRow[]): string {
             "No saved NPCs found for this campaign. Generate one in dm-assistant first.")}
         ${listHtml(creatures, "creature",
             "No saved creatures found for this campaign. Disseminate a bestiary entry in dm-assistant first.")}
+        ${listHtml(shops,     "shop",
+            "No saved shops found for this campaign. Generate one in dm-assistant first.")}
+        ${listHtml(locations, "location",
+            "No saved locations found for this campaign. Disseminate one in dm-assistant first.")}
       </div>
     </div>
   `;
@@ -181,32 +224,37 @@ function wireKindToggle(html: unknown): void {
   if (!el) return;
   const container = el.querySelector<HTMLElement>(".dab-list-container");
   if (!container) return;
-  const apply = (active: ActorKind): void => {
+  const apply = (active: PickerKind): void => {
     container.dataset.activeKind = active;
     el.querySelectorAll<HTMLElement>(".dab-actor-list, .dab-empty").forEach((node) => {
       node.style.display = node.dataset.kind === active ? "" : "none";
     });
   };
-  // Initial render — show NPC list, hide creature list.
+  // Initial render — show NPC list, hide the others.
   apply("npc");
   el.querySelectorAll<HTMLInputElement>('input[name="dab-kind"]').forEach((radio) => {
     radio.addEventListener("change", () => {
-      if (radio.checked) apply(radio.value as ActorKind);
+      if (radio.checked) apply(radio.value as PickerKind);
     });
   });
 }
 
+const _PICKER_KIND_SET: ReadonlySet<PickerKind> = new Set<PickerKind>([
+  "npc", "creature", "shop", "location",
+]);
+
 /** Returns the picked (kind, slug) pair, or null if nothing is
  *  selected. The radio input value is encoded as `"<kind>:<slug>"`
- *  so a single radio group can carry both bits. */
-function pickedActor(html: unknown): { kind: ActorKind; slug: string } | null {
+ *  so a single radio group can carry all four kinds. */
+function pickedActor(html: unknown): { kind: PickerKind; slug: string } | null {
   const el = unwrapHtml(html);
   if (!el) return null;
   const checked = el.querySelector<HTMLInputElement>('input[name="dab-actor-pick"]:checked');
   if (!checked) return null;
-  const [kind, slug] = checked.value.split(":");
-  if ((kind !== "npc" && kind !== "creature") || !slug) return null;
-  return { kind, slug };
+  const [rawKind, slug] = checked.value.split(":");
+  if (!slug) return null;
+  if (!_PICKER_KIND_SET.has(rawKind as PickerKind)) return null;
+  return { kind: rawKind as PickerKind, slug };
 }
 
 /** @deprecated kept for the test-only re-export; new callers use `pickedActor`. */
@@ -236,17 +284,21 @@ export async function openImportPicker(): Promise<void> {
     return;
   }
 
-  // Fetch both lists concurrently — picker shows them side-by-side
-  // via the kind toggle. If one list endpoint fails we still want
-  // the other to populate, so we use `Promise.allSettled`.
+  // Fetch all four lists concurrently — picker shows them via the
+  // kind toggle. If a list endpoint fails we still want the others
+  // to populate, so we use `Promise.allSettled`.
   const opts = { baseUrl, apiKey: apiKey || undefined, campaignId };
-  const [npcsRes, creaturesRes] = await Promise.allSettled([
+  const [npcsRes, creaturesRes, shopsRes, locationsRes] = await Promise.allSettled([
     listNpcs(opts),
     listCreatures(opts),
+    listShops(opts),
+    listLocations(opts),
   ]);
 
   let npcs:      PickerRow[] = [];
   let creatures: PickerRow[] = [];
+  let shops:     PickerRow[] = [];
+  let locations: PickerRow[] = [];
 
   if (npcsRes.status === "fulfilled") {
     npcs = npcsRes.value.map(npcToRow);
@@ -262,12 +314,30 @@ export async function openImportPicker(): Promise<void> {
     log.warn("listCreatures failed", msg);
     ui.notifications.warn(`Couldn't list Creatures: ${msg}`);
   }
+  if (shopsRes.status === "fulfilled") {
+    shops = shopsRes.value.map(shopToRow);
+  } else {
+    const msg = shopsRes.reason instanceof Error ? shopsRes.reason.message : String(shopsRes.reason);
+    log.warn("listShops failed", msg);
+    ui.notifications.warn(`Couldn't list Shops: ${msg}`);
+  }
+  if (locationsRes.status === "fulfilled") {
+    locations = locationsRes.value.map(locationToRow);
+  } else {
+    const msg = locationsRes.reason instanceof Error ? locationsRes.reason.message : String(locationsRes.reason);
+    log.warn("listLocations failed", msg);
+    ui.notifications.warn(`Couldn't list Locations: ${msg}`);
+  }
 
-  // Both failed → bail with an error instead of opening an empty
-  // dialog. One-side failure still opens the picker so the DM can
-  // import what's available.
-  if (npcs.length === 0 && creatures.length === 0
-      && npcsRes.status === "rejected" && creaturesRes.status === "rejected") {
+  // All four failed → bail with an error instead of opening an
+  // empty dialog. Partial failure still opens the picker so the
+  // DM can import what's available.
+  const allRejected =
+    npcsRes.status      === "rejected" &&
+    creaturesRes.status === "rejected" &&
+    shopsRes.status     === "rejected" &&
+    locationsRes.status === "rejected";
+  if (npcs.length === 0 && creatures.length === 0 && shops.length === 0 && locations.length === 0 && allRejected) {
     ui.notifications.error("Couldn't reach dm-assistant — check the base URL + connection.");
     return;
   }
@@ -275,7 +345,7 @@ export async function openImportPicker(): Promise<void> {
   const DialogV2 = resolveDialogV2();
   const dialog = new DialogV2({
     window: { title: "Import from dm-assistant" },
-    content: buildBody(npcs, creatures),
+    content: buildBody(npcs, creatures, shops, locations),
     buttons: [
       {
         action: "cancel",
@@ -290,27 +360,45 @@ export async function openImportPicker(): Promise<void> {
         callback: async (_event, _button, dlg) => {
           const pick = pickedActor(dlg.element);
           if (!pick) {
-            ui.notifications.warn("Pick an NPC or Creature first.");
+            ui.notifications.warn("Pick an entity first.");
             return;
           }
           try {
             ui.notifications.info(`Importing ${pick.kind} ${pick.slug}…`);
-            const r = await importActor({
-              baseUrl,
-              apiKey: apiKey || undefined,
-              campaignId,
-              slug: pick.slug,
-              kind: pick.kind,
-              dataPrefix,
-            });
-            const journalMsg =
-              r.journal === "created" ? " + DM-notes journal created" :
-              r.journal === "updated" ? " + DM-notes journal updated" :
-              r.journal === "deleted" ? " (stale DM-notes journal removed)" :
-              "";
-            ui.notifications.info(
-              `Imported ${r.kind} ${r.slug} — actor ${r.actor}${journalMsg}.`,
-            );
+            // Actor-flavoured kinds (npc + creature) go through
+            // importActor; journal-flavoured kinds (shop + location)
+            // go through importJournal. Each writes a different
+            // Foundry document type with different drift-flag kinds.
+            if (pick.kind === "npc" || pick.kind === "creature") {
+              const r = await importActor({
+                baseUrl,
+                apiKey: apiKey || undefined,
+                campaignId,
+                slug:        pick.slug,
+                kind:        pick.kind,
+                dataPrefix,
+              });
+              const journalMsg =
+                r.journal === "created" ? " + DM-notes journal created" :
+                r.journal === "updated" ? " + DM-notes journal updated" :
+                r.journal === "deleted" ? " (stale DM-notes journal removed)" :
+                "";
+              ui.notifications.info(
+                `Imported ${r.kind} ${r.slug} — actor ${r.actor}${journalMsg}.`,
+              );
+            } else {
+              const r = await importJournal({
+                baseUrl,
+                apiKey: apiKey || undefined,
+                campaignId,
+                slug:       pick.slug,
+                kind:       pick.kind,
+                dataPrefix,
+              });
+              ui.notifications.info(
+                `Imported ${r.kind} ${r.slug} — journal ${r.journal}.`,
+              );
+            }
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             log.warn("import failed", msg);

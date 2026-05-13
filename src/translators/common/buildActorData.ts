@@ -29,17 +29,39 @@ export const MODULE_ID = "dm-assistant-bridge";
  * cleanup pass can find both via the same key.
  */
 /** Flag-kind discriminant on imported Foundry documents. Combines
- *  the dm-assistant **entity kind** (`npc` | `creature`) with the
- *  **document role** (`actor` for the main entity, `dm-notes` for
- *  the companion DM-only journal). Drift identity (`matchesSlug` in
- *  `foundry/documents.ts`) uses this discriminant so an NPC and a
- *  Creature with the same slug don't overwrite each other. */
+ *  the dm-assistant **entity kind** (`npc` / `creature` / `shop` /
+ *  `location`) with the **document role**:
+ *
+ *   - `actor`         — main Foundry Actor for NPC / Creature imports
+ *   - `dm-notes`      — companion DM-only JournalEntry alongside an actor
+ *   - `journal`       — primary JournalEntry for shop / location imports
+ *
+ *  Drift identity (`matchesSlug` in `foundry/documents.ts`) uses
+ *  this discriminant so an NPC and a Creature with the same slug
+ *  don't overwrite each other, and a shop journal doesn't collide
+ *  with a location journal of the same slug. */
 export type FlagKind =
   | "npc-actor"      | "npc-dm-notes"
-  | "creature-actor" | "creature-dm-notes";
+  | "creature-actor" | "creature-dm-notes"
+  | "shop-journal"
+  | "location-journal";
 
-/** Map a `(entityKind, role)` pair to the flag-kind discriminant. */
-export function flagKindFor(entityKind: ActorKind, role: "actor" | "dm-notes"): FlagKind {
+/** Map a `(entityKind, role)` pair to the flag-kind discriminant.
+ *  Only valid pairs:
+ *
+ *  | entityKind | role           |
+ *  |------------|----------------|
+ *  | npc        | actor / dm-notes |
+ *  | creature   | actor / dm-notes |
+ *  | shop       | journal        |
+ *  | location   | journal        |
+ *
+ *  Invalid combinations widen to FlagKind via the type assertion;
+ *  the orchestrator never constructs the bad pairs. */
+export function flagKindFor(
+  entityKind: ActorKind | "shop" | "location",
+  role:       "actor" | "dm-notes" | "journal",
+): FlagKind {
   return `${entityKind}-${role}` as FlagKind;
 }
 
@@ -115,6 +137,13 @@ export interface JournalImportData {
    *  on draggable tokens. Same null/undefined fallback semantics
    *  as `ActorImportData.folder`. */
   folder?:    string | null;
+  /** Foundry `JournalEntry.img` — hero image shown in the sidebar
+   *  and (optionally) embedded into Page 1. Used by shop / location
+   *  import (`establishment_image_url` / `map_image_url` →
+   *  uploaded via FilePicker → this field). Omitted on NPC /
+   *  Creature DM-notes journals (those carry the actor's portrait
+   *  on the actor side; the companion journal stays imageless). */
+  img?:       string | null;
   flags: {
     [MODULE_ID]: BridgeFlags;
   };

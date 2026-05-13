@@ -11,11 +11,17 @@ import type {
   ActorKind,
   FoundryActorResponse,
   FoundryHealthResponse,
+  FoundryLocationResponse,
   FoundryNpcResponse,
+  FoundryShopResponse,
   SavedCreatureListResponse,
   SavedCreatureSummary,
+  SavedLocationListResponse,
+  SavedLocationSummary,
   SavedNpcListResponse,
   SavedNpcSummary,
+  SavedShopListResponse,
+  SavedShopSummary,
 } from "./types.js";
 
 /**
@@ -40,16 +46,57 @@ export class ApiError extends Error {
   public readonly url?:    string;
   public override readonly cause?: unknown;
 
+  /** Server-side `detail.error` discriminant from a structured 401
+   *  response (dm-assistant#489 / contract 0.3.0+). One of
+   *  `"missing_api_key"` / `"invalid_api_key"`. Undefined for any
+   *  other status or for 401s without a structured body. */
+  public readonly authError?: string;
+
+  /** Server-side `detail.hint` text from a structured 401. The
+   *  bridge's UI surfaces this verbatim alongside the error
+   *  categoriser's own hint copy. Undefined when not present. */
+  public readonly authHint?: string;
+
   constructor(
     message: string,
-    opts: { kind: ApiErrorKind; status?: number; url?: string; cause?: unknown },
+    opts: {
+      kind:       ApiErrorKind;
+      status?:    number;
+      url?:       string;
+      cause?:     unknown;
+      authError?: string;
+      authHint?:  string;
+    },
   ) {
     super(message);
-    this.name   = "ApiError";
-    this.kind   = opts.kind;
-    this.status = opts.status;
-    this.url    = opts.url;
-    this.cause  = opts.cause;
+    this.name      = "ApiError";
+    this.kind      = opts.kind;
+    this.status    = opts.status;
+    this.url       = opts.url;
+    this.cause     = opts.cause;
+    this.authError = opts.authError;
+    this.authHint  = opts.authHint;
+  }
+}
+
+/**
+ * Parse a 401 response body for the `detail.error` + `detail.hint`
+ * discriminants from dm-assistant#489. Returns `{}` on any parsing
+ * failure (non-JSON body, unexpected shape, network truncation).
+ * The caller passes the result into `ApiError` so the bridge's
+ * error categoriser can render targeted UI hints.
+ */
+async function parseAuthError(res: Response): Promise<{ authError?: string; authHint?: string }> {
+  try {
+    const body = await res.json() as { detail?: { error?: unknown; hint?: unknown } };
+    const detail = body.detail;
+    if (!detail || typeof detail !== "object") return {};
+    const out: { authError?: string; authHint?: string } = {};
+    if (typeof detail.error === "string") out.authError = detail.error;
+    if (typeof detail.hint  === "string") out.authHint  = detail.hint;
+    return out;
+  } catch {
+    return {};
   }
 }
 
@@ -96,7 +143,8 @@ export async function fetchHealth(opts: ClientOptions): Promise<FoundryHealthRes
       ctrl,
     );
     if (!res.ok) {
-      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
     }
     const body = (await res.json()) as FoundryHealthResponse;
     // Light shape validation — refuse responses that don't look right
@@ -159,7 +207,8 @@ export async function fetchActor(opts: ActorFetchOptions): Promise<FoundryActorR
       ctrl,
     );
     if (!res.ok) {
-      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
     }
     const body = (await res.json()) as FoundryActorResponse;
     if (typeof body.slug !== "string" || typeof body.kind !== "string") {
@@ -212,7 +261,8 @@ export async function listNpcs(opts: ListNpcsOptions): Promise<SavedNpcSummary[]
       ctrl,
     );
     if (!res.ok) {
-      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
     }
     const body = (await res.json()) as SavedNpcListResponse;
     if (!Array.isArray(body.saved)) {
@@ -256,9 +306,184 @@ export async function listCreatures(opts: ListCreaturesOptions): Promise<SavedCr
       ctrl,
     );
     if (!res.ok) {
-      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
     }
     const body = (await res.json()) as SavedCreatureListResponse;
+    if (!Array.isArray(body.saved)) {
+      throw new ApiError("Response missing 'saved' array", { kind: "shape", url });
+    }
+    return body.saved;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+
+// ── Shop endpoints (#25 — dm-assistant contract 0.3.0+) ─────────────────────
+
+
+export interface ShopFetchOptions extends ClientOptions {
+  campaignId: string;
+  slug:       string;
+}
+
+/** `GET /foundry/shop/{slug}` — Foundry-friendly shop payload. */
+export async function fetchShop(opts: ShopFetchOptions): Promise<FoundryShopResponse> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty",    { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+  if (!opts.slug)       throw new ApiError("slug is empty",       { kind: "config" });
+
+  const url    = `${base}/foundry/shop/${encodeURIComponent(opts.slug)}`
+               + `?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 10000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
+    }
+    const body = (await res.json()) as FoundryShopResponse;
+    if (typeof body.slug !== "string" || body.kind !== "shop") {
+      throw new ApiError("Response missing slug or wrong kind", { kind: "shape", url });
+    }
+    return body;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+export interface ListShopsOptions extends ClientOptions {
+  campaignId: string;
+}
+
+/** Fetch the picker's Shop list from `/shop-generate/saved`. */
+export async function listShops(opts: ListShopsOptions): Promise<SavedShopSummary[]> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty",    { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+
+  const url    = `${base}/shop-generate/saved?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 5000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
+    }
+    const body = (await res.json()) as SavedShopListResponse;
+    if (!Array.isArray(body.saved)) {
+      throw new ApiError("Response missing 'saved' array", { kind: "shape", url });
+    }
+    return body.saved;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+
+// ── Location endpoints (#26 — dm-assistant contract 0.3.0+) ─────────────────
+
+
+export interface LocationFetchOptions extends ClientOptions {
+  campaignId: string;
+  slug:       string;
+}
+
+/** `GET /foundry/location/{slug}` — Foundry-friendly location payload. */
+export async function fetchLocation(opts: LocationFetchOptions): Promise<FoundryLocationResponse> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty",    { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+  if (!opts.slug)       throw new ApiError("slug is empty",       { kind: "config" });
+
+  const url    = `${base}/foundry/location/${encodeURIComponent(opts.slug)}`
+               + `?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 10000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
+    }
+    const body = (await res.json()) as FoundryLocationResponse;
+    if (typeof body.slug !== "string" || body.kind !== "location") {
+      throw new ApiError("Response missing slug or wrong kind", { kind: "shape", url });
+    }
+    return body;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+export interface ListLocationsOptions extends ClientOptions {
+  campaignId: string;
+}
+
+/** Fetch the picker's Location list from `/location-generate/saved`. */
+export async function listLocations(opts: ListLocationsOptions): Promise<SavedLocationSummary[]> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty",    { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+
+  const url    = `${base}/location-generate/saved?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 5000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
+    }
+    const body = (await res.json()) as SavedLocationListResponse;
     if (!Array.isArray(body.saved)) {
       throw new ApiError("Response missing 'saved' array", { kind: "shape", url });
     }
@@ -313,7 +538,8 @@ export async function fetchImageBytes(opts: ClientOptions & { path: string }): P
       ctrl,
     );
     if (!res.ok) {
-      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
     }
     return await res.blob();
   } catch (e) {

@@ -84,3 +84,93 @@ export interface FoundryActorResponse {
  *  `kind` allowed to widen beyond "npc" (dm-assistant 0.2.0 unified
  *  the endpoint). Callers pinned to this name keep working. */
 export type FoundryNpcResponse = FoundryActorResponse;
+
+
+// ── Foundry v2 endpoints (dm-assistant contract 0.3.0+) ───────────────────
+
+
+/** Kinds the per-kind journal endpoints serve. Each maps to a
+ *  Foundry `JournalEntry` (optionally a Campaign Codex sheet of
+ *  the matching CC type). v0.3.0 ships shop + location; faction
+ *  lands later. */
+export type JournalKind = "shop" | "location";
+
+/** Item shape from `/shop-generate/saved` — mirrors the
+ *  creature-summary shape; shops aren't tied to a single
+ *  region either (a shop has its own region in its front-matter,
+ *  but the listing endpoint doesn't surface it). */
+export interface SavedShopSummary {
+  slug:        string;
+  name:        string;
+  filename:    string;
+  modified_at: string;
+  has_image:   boolean;
+  thumb_url:   string;
+}
+
+export interface SavedShopListResponse {
+  saved: SavedShopSummary[];
+}
+
+/** Item shape from `/location-generate/saved`. */
+export interface SavedLocationSummary {
+  slug:        string;
+  name:        string;
+  filename:    string;
+  modified_at: string;
+  has_image:   boolean;
+  thumb_url:   string;
+}
+
+export interface SavedLocationListResponse {
+  saved: SavedLocationSummary[];
+}
+
+/** `GET /foundry/shop/{slug}` response. Mirrors `FoundryActorResponse`
+ *  with shop-specific bits:
+ *   - `kind` is always `"shop"`
+ *   - `proprietor_slug`: server-derived NPC slug from the
+ *     `## Proprietor: Name & Identity` section, or null
+ *   - Image fields renamed `establishment_*_url` (semantically
+ *     a storefront, not a face) */
+export interface FoundryShopResponse {
+  slug:                    string;
+  kind:                    "shop";
+  name:                    string;
+  display_name:            string;
+  proprietor_slug:         string | null;
+  establishment_image_url: string | null;
+  establishment_thumb_url: string | null;
+  front_matter:            Record<string, unknown>;
+  sections:                FoundrySection[];
+  dm_sections:             FoundrySection[];
+  audit: {
+    source_path: string;
+    modified_at: string;
+  };
+}
+
+/** `GET /foundry/location/{slug}` response. Mirrors the shop shape
+ *  with location-specific renames:
+ *   - `kind` is always `"location"`
+ *   - No `proprietor_slug` (locations don't have a single owner;
+ *     related entity slugs live in `front_matter.related_*`)
+ *   - Image fields are `map_*_url` (top-down map, not a storefront) */
+export interface FoundryLocationResponse {
+  slug:           string;
+  kind:           "location";
+  name:           string;
+  display_name:   string;
+  map_image_url:  string | null;
+  map_thumb_url:  string | null;
+  front_matter:   Record<string, unknown>;
+  sections:       FoundrySection[];
+  dm_sections:    FoundrySection[];
+  audit: {
+    source_path: string;
+    modified_at: string;
+  };
+}
+
+/** Union for code that handles both kinds via a single import flow. */
+export type FoundryJournalResponse = FoundryShopResponse | FoundryLocationResponse;
