@@ -12,7 +12,7 @@
  * land in S9 when the structured-stat-block translator ships.
  */
 
-import type { FoundryNpcResponse } from "../../api/types.js";
+import type { ActorKind, FoundryActorResponse, FoundryNpcResponse } from "../../api/types.js";
 import { buildBiographyHtml }      from "./buildBiography.js";
 import { buildDmJournalPages,
          type JournalPageData }    from "./buildJournalPages.js";
@@ -28,13 +28,28 @@ export const MODULE_ID = "dm-assistant-bridge";
  * Identical shape on actors AND companion journals so a future
  * cleanup pass can find both via the same key.
  */
+/** Flag-kind discriminant on imported Foundry documents. Combines
+ *  the dm-assistant **entity kind** (`npc` | `creature`) with the
+ *  **document role** (`actor` for the main entity, `dm-notes` for
+ *  the companion DM-only journal). Drift identity (`matchesSlug` in
+ *  `foundry/documents.ts`) uses this discriminant so an NPC and a
+ *  Creature with the same slug don't overwrite each other. */
+export type FlagKind =
+  | "npc-actor"      | "npc-dm-notes"
+  | "creature-actor" | "creature-dm-notes";
+
+/** Map a `(entityKind, role)` pair to the flag-kind discriminant. */
+export function flagKindFor(entityKind: ActorKind, role: "actor" | "dm-notes"): FlagKind {
+  return `${entityKind}-${role}` as FlagKind;
+}
+
 export interface BridgeFlags {
   slug:                  string;
   campaign_id:           string;
   source_path:           string;       // mirrors response.audit.source_path
   modified_at:           string;       // mirrors response.audit.modified_at
   api_contract_version?: string;       // pinned at import time
-  kind:                  "npc-actor" | "npc-dm-notes";
+  kind:                  FlagKind;
 }
 
 /**
@@ -153,10 +168,16 @@ function buildSystemFields(
 
 
 export function buildImportBundle(
-  payload: FoundryNpcResponse,
+  payload: FoundryActorResponse,
   opts:    BuildOptions,
 ): ImportBundle {
   const biography = buildBiographyHtml(payload);
+
+  // Entity kind is the payload's `kind` (npc or creature). The flag-
+  // kind discriminant combines that with the document role so a
+  // creature actor and an NPC actor with the same slug carry
+  // distinct identity flags and don't collide on re-import.
+  const entityKind: ActorKind = payload.kind;
 
   const actorFlags: BridgeFlags = {
     slug:                  payload.slug,
@@ -164,10 +185,14 @@ export function buildImportBundle(
     source_path:           payload.audit.source_path,
     modified_at:           payload.audit.modified_at,
     api_contract_version:  opts.contractVersion,
-    kind:                  "npc-actor",
+    kind:                  flagKindFor(entityKind, "actor"),
   };
 
   const actor: ActorImportData = {
+    // Foundry's dnd5e schema uses Actor type "npc" for both NPCs and
+    // monsters/creatures — there's no separate "creature" Actor type
+    // (per dnd5e v5.x schema observations). The Foundry-side type
+    // stays "npc"; the dm-assistant entity kind is captured in flags.
     name: payload.display_name || payload.name || payload.slug,
     type: "npc",
     img:  null,    // orchestrator overwrites after FilePicker upload
@@ -189,7 +214,10 @@ export function buildImportBundle(
 
   let journal: JournalImportData | null = null;
   if (payload.dm_sections.length > 0) {
-    const journalFlags: BridgeFlags = { ...actorFlags, kind: "npc-dm-notes" };
+    const journalFlags: BridgeFlags = {
+      ...actorFlags,
+      kind: flagKindFor(entityKind, "dm-notes"),
+    };
     journal = {
       name:      `${actor.name} — DM Notes`,
       pages:     buildDmJournalPages(payload),
