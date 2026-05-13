@@ -169,8 +169,15 @@ function buildPages(
   payload:      FoundryJournalResponse,
   metadataHtml: string,
 ): JournalPageData[] {
+  // Foundry orders embedded pages by their `sort` field; today's
+  // `JournalPageData` shape doesn't surface it (Foundry assigns
+  // monotonically-increasing defaults on createEmbeddedDocuments).
+  // We rely on response order being canonical — the picker UI
+  // doesn't expose per-page reordering, and the dm-assistant
+  // generator emits sections in a deliberate sequence. If a future
+  // requirement needs explicit sort keys, add a `sort` field to
+  // JournalPageData and number them here (start 100000, +100 each).
   const pages: JournalPageData[] = [];
-  let   sortKey = 100_000;
 
   payload.sections.forEach((section, idx) => {
     // First public page carries the metadata-header prefix.
@@ -183,7 +190,6 @@ function buildPages(
         format:  1,
       },
     });
-    sortKey += 100;
   });
 
   payload.dm_sections.forEach((section) => {
@@ -195,7 +201,6 @@ function buildPages(
         format:  1,
       },
     });
-    sortKey += 100;
   });
 
   return pages;
