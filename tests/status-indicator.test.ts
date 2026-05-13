@@ -124,23 +124,54 @@ describe("statusIndicator — visual state", () => {
     expect(label().textContent).toBe("DM Assistant Bridge");
   });
 
-  it("setStatus('connected') turns the dot green and appends the version tag", () => {
+  it("setStatus('connected') turns the dot green and appends the bridge module version", () => {
     mountStatusIndicator();
-    setStatus({ state: "connected", version: "0.1.0", detail: "all good" });
+    setStatus({
+      state:    "connected",
+      versions: { bridge: "0.2.0", dmAssistant: "0.23.0", apiContract: "0.1.0" },
+    });
     expect(dot().style.background).toBe("#2f7a3f");
-    expect(label().textContent).toBe("DM Assistant Bridge (v0.1.0)");
-    expect(document.getElementById(EL_ID)!.title).toContain("connected");
-    expect(document.getElementById(EL_ID)!.title).toContain("all good");
+    // Chip label uses the BRIDGE module version (matches what the DM
+    // installed). Other two versions are in the tooltip only.
+    expect(label().textContent).toBe("DM Assistant Bridge v0.2.0");
+    const title = document.getElementById(EL_ID)!.title;
+    expect(title).toContain("connected");
+    expect(title).toContain("Bridge module: v0.2.0");
+    expect(title).toContain("dm-assistant: v0.23.0");
+    expect(title).toContain("API contract: v0.1.0");
   });
 
-  it("setStatus('outdated') turns the dot warning-yellow", () => {
+  it("setStatus('connected') with only the bridge version renders the chip but a minimal tooltip", () => {
+    // Defensive — versions object can be partial if dm-assistant's
+    // /foundry/health response is missing a field; the chip still
+    // works with whatever it does have.
     mountStatusIndicator();
-    setStatus({ state: "outdated", version: "0.0.5", detail: "upgrade me" });
+    setStatus({ state: "connected", versions: { bridge: "0.2.0" } });
+    expect(label().textContent).toBe("DM Assistant Bridge v0.2.0");
+    const title = document.getElementById(EL_ID)!.title;
+    expect(title).toContain("Bridge module: v0.2.0");
+    expect(title).not.toContain("dm-assistant:");
+    expect(title).not.toContain("API contract:");
+  });
+
+  it("setStatus('outdated') turns the dot warning-yellow and shows all versions in the tooltip", () => {
+    mountStatusIndicator();
+    setStatus({
+      state:    "outdated",
+      versions: { bridge: "0.2.0", dmAssistant: "0.20.0", apiContract: "0.0.5" },
+      detail:   "upgrade me",
+    });
     expect(dot().style.background).toBe("#b58800");
-    // The version tag is suppressed for non-connected states so the
-    // chip doesn't appear to confirm a stale-but-working connection.
+    // The bridge-version tag is suppressed for non-connected states
+    // so the chip doesn't appear to confirm a stale-but-working
+    // connection. Tooltip still surfaces all three versions so the
+    // DM can diagnose which side is out of date.
     expect(label().textContent).toBe("DM Assistant Bridge");
-    expect(document.getElementById(EL_ID)!.title).toContain("outdated");
+    const title = document.getElementById(EL_ID)!.title;
+    expect(title).toContain("outdated");
+    expect(title).toContain("Bridge module: v0.2.0");
+    expect(title).toContain("API contract: v0.0.5");
+    expect(title).toContain("upgrade me");
   });
 
   it("setStatus('unreachable') turns the dot red and surfaces detail in the tooltip", () => {
@@ -162,10 +193,10 @@ describe("statusIndicator — visual state", () => {
   it("setStatus called before mount stashes the payload; mount auto-applies it", () => {
     // An early probe that resolves before the `ready` hook fires must
     // not be lost — `mountStatusIndicator` replays the latest payload.
-    setStatus({ state: "connected", version: "0.1.0" });
+    setStatus({ state: "connected", versions: { bridge: "0.2.0" } });
     expect(document.getElementById(EL_ID)).toBeNull();
     mountStatusIndicator();
-    expect(label().textContent).toBe("DM Assistant Bridge (v0.1.0)");
+    expect(label().textContent).toBe("DM Assistant Bridge v0.2.0");
     expect(dot().style.background).toBe("#2f7a3f");
   });
 });

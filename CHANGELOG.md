@@ -14,6 +14,22 @@ dm-assistant `/foundry/*` endpoint family) via the
 `module.json`. Bumping that field is a breaking change for users running
 older dm-assistant deployments; flag it explicitly in the entry below.
 
+## [Unreleased]
+
+### Changed
+
+- **Status chip label now shows the bridge module version** instead of the
+  API contract version (#18). The chip reads `DM Assistant Bridge v0.2.0`
+  when connected — matching what the DM sees in Foundry's module list. The
+  tooltip surfaces all three version sources explicitly: bridge module,
+  dm-assistant package, API contract. Resolves the "what does `(v0.1.0)`
+  mean?" confusion from the v0.22.x patch-storm smoke. Internal: the
+  `StatusPayload.version` field was replaced with a richer
+  `StatusPayload.versions` object (`{ bridge?, dmAssistant?, apiContract? }`).
+  Version is injected at build time via Vite `define` (sidesteps Foundry
+  v13's `game.modules.get(id).version` getter, which was returning "0.0.0"
+  in some worlds where the manifest hadn't fully reconciled).
+
 ## [0.2.0] — 2026-05-12
 
 First-class structured NPC import for D&D 5e + modernised picker dialog.

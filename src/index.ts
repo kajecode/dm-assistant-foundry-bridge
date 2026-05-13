@@ -73,6 +73,25 @@ function getMinContractVersion(): string {
   return typeof flag === "string" ? flag : "0.0.0";
 }
 
+/**
+ * Bridge module version, injected at build time from `module.json`
+ * via Vite's `define` (see `vite.config.ts`). Foundry's runtime
+ * `game.modules.get(id).version` was returning "0.0.0" in some v13
+ * worlds — the build-time constant gives us a value we control end
+ * to end. Falls back to undefined-equivalent in test environments
+ * where `__BRIDGE_VERSION__` wasn't substituted (chip then renders
+ * bare without a version tag).
+ */
+declare const __BRIDGE_VERSION__: string | undefined;
+
+function getBridgeModuleVersion(): string | undefined {
+  // `typeof` guard avoids ReferenceError in any environment that
+  // happens to evaluate this code without the define applied.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  const v: string | undefined = typeof __BRIDGE_VERSION__ === "string" ? __BRIDGE_VERSION__ : undefined;
+  return v && v.length > 0 ? v : undefined;
+}
+
 async function runProbe(): Promise<ProbeResult> {
   const baseUrl = getSetting<string>(SETTING.baseUrl);
   const apiKey  = getSetting<string>(SETTING.apiKey);
@@ -80,11 +99,16 @@ async function runProbe(): Promise<ProbeResult> {
   try {
     const health = await fetchHealth({ baseUrl, apiKey: apiKey || undefined });
     const minVer = getMinContractVersion();
+    const versions = {
+      bridge:      getBridgeModuleVersion(),
+      dmAssistant: health.dm_assistant_version,
+      apiContract: health.api_contract_version,
+    };
     if (compareSemver(health.api_contract_version, minVer) < 0) {
       setStatus({
-        state:   "outdated",
-        version: health.api_contract_version,
-        detail:  `Server contract v${health.api_contract_version} < bridge minimum v${minVer}. Upgrade dm-assistant.`,
+        state:    "outdated",
+        versions,
+        detail:   `Server contract v${health.api_contract_version} < bridge minimum v${minVer}. Upgrade dm-assistant.`,
       });
       return {
         ok:    false,
@@ -92,9 +116,8 @@ async function runProbe(): Promise<ProbeResult> {
       };
     }
     setStatus({
-      state:   "connected",
-      version: health.api_contract_version,
-      detail:  `dm-assistant ${health.dm_assistant_version} · contract v${health.api_contract_version}`,
+      state:    "connected",
+      versions,
     });
     return {
       ok:              true,
