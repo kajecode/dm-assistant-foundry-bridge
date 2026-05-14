@@ -1,6 +1,6 @@
 {
   "name": "dm-assistant-bridge",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Foundry VTT module — imports content from a running dm-assistant instance.",
   "type": "module",
   "private": true,

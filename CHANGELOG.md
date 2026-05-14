@@ -15,6 +15,39 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.5.0] — 2026-05-14
+
+> ⚠ **Breaking for users on dm-assistant < 0.28.0.** `min-api-contract-version`
+> bumps `0.3.0 → 0.4.0` because the bridge now consumes the
+> `front_matter.actions` field introduced in dm-assistant v0.28.0.
+> Older deployments will see the chip go yellow ("outdated"). Upgrade
+> the server first.
+
+### Added
+
+- **Embedded Items translator** (bridge#20, closes the **#481** v1 umbrella). When an imported NPC or Creature payload includes a `front_matter.actions.items[]` array (dm-assistant v0.28.0+), the bridge now translates each entry into a Foundry embedded `Item` document on the actor. Weapon items get a synthesised `activities` entry so attack rolls work out of the box; feat / spell / equipment / consumable / tool / loot items land with description + activation + uses + recharge.
+- **Naming convention**: weapon + feat items decorated with `${item.name} (${actor.name})` (matches Foundry's compendium-import convention for natural attacks); other item types stay bare.
+- **Drop-and-replace drift policy**: on re-import, items flagged with `flags.dm-assistant-bridge.source === "dm-assistant"` are deleted before the new translated set is created. User-authored items (no `dm-assistant` source flag) survive untouched.
+- **Ranged-vs-melee heuristic**: actionType defaults to `mwak` (melee weapon attack). Flips to `rwak` only when the item carries a `thr` (thrown) or `amm` (ammunition) property OR the range is ≥ 30ft. Keeps reach weapons (10ft Slam, etc.) correctly classified as melee.
+
+### Changed
+
+- **`min-api-contract-version` 0.3.0 → 0.4.0** (breaking for dm-assistant < v0.28.0). Required for the embedded-items translation; older dm-assistant servers don't emit the `actions` field.
+- **`createOrUpdateActor` signature** gains an optional `items: DnD5eItemData[]` parameter (default `[]`). Existing callers continue to work; passing `[]` runs the drop-and-replace cleanup to remove stale bridge-marked items from previous imports.
+
+### Internal
+
+- New `src/translators/dnd5e/items.ts` translator module (~270 LOC). Pure data; tests cover all seven item types, the naming convention, the source-flag stamping, recharge/uses parsing, melee/ranged heuristic, description rendering, and forward-compat field handling.
+- New `src/foundry/documents.ts` helper `syncEmbeddedItems` handles the drop-and-replace cycle via Foundry's embedded-document API.
+- `ImportBundle` gains an `items: DnD5eItemData[]` field; `buildImportBundle` populates it from `front_matter.actions` when the payload includes a valid dnd5e actions sidecar.
+- 11 new translator tests + 6 new persist-side tests + 5 new bundle-integration tests. Total: 205/205 pass.
+
+### Forward-compat
+
+- `object_slug` and `compendium_source` fields on individual items are reserved (dm-assistant #481 v2 / phase 2). v0.5.0 ignores both; future bridge releases will resolve them against the Objects Library + compendiums.
+- `activities` synthesis is the minimal attack-shape only. Full dnd5e v5.x `activities` keyed-dict translation (multiple activities per item, save mechanics, healing, etc.) lands in a phase-2 ticket if needed.
+
+
 ## [0.4.1] — 2026-05-14
 
 ### Added

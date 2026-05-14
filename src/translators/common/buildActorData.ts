@@ -18,7 +18,12 @@ import { buildDmJournalPages,
          type JournalPageData }    from "./buildJournalPages.js";
 import { buildDnD5eSystemFields,
          type DnD5eSystemFields }  from "../dnd5e/statsBlock.js";
-import type { StatsFromPayload }   from "../dnd5e/types.js";
+import { buildDnD5eItems,
+         type DnD5eItemData }      from "../dnd5e/items.js";
+import type {
+  ActionsFromPayload,
+  StatsFromPayload,
+}                                  from "../dnd5e/types.js";
 import { log }                     from "../../lib/log.js";
 
 export const MODULE_ID = "dm-assistant-bridge";
@@ -152,6 +157,12 @@ export interface JournalImportData {
 export interface ImportBundle {
   actor:        ActorImportData;
   journal:      JournalImportData | null;     // null when there are no dm_sections
+  /** Embedded `Item` documents to create on the actor (bridge#20).
+   *  Empty array when the payload lacks `front_matter.actions` or
+   *  when the ruleset isn't dnd5e. The orchestrator persists these
+   *  via `actor.createEmbeddedDocuments("Item", items)` after the
+   *  drop-and-replace cleanup pass. */
+  items:        DnD5eItemData[];
   campaignId:   string;
   slug:         string;
   contractVersion?: string;
@@ -270,11 +281,49 @@ export function buildImportBundle(
     };
   }
 
+  // Embedded Items — bridge#20 / dm-assistant#485 (contract 0.4.0).
+  // Translates `front_matter.actions.items[]` into Foundry Item
+  // documents for the actor. Skipped when:
+  //   - the payload doesn't include the field (older dm-assistant)
+  //   - `actions.ruleset` isn't dnd5e (PF2e ships its own
+  //     translator in S12)
+  //   - `actions.items` is empty
+  // Failures degrade to biography-only without surfacing — same
+  // policy as the stats-block translator.
+  const items = buildActorItems(payload, actor.name);
+
   return {
     actor,
     journal,
+    items,
     campaignId:      opts.campaignId,
     slug:            payload.slug,
     contractVersion: opts.contractVersion,
   };
+}
+
+
+/** Run the dnd5e items translator against the payload's
+ *  `front_matter.actions` field. Returns an empty array on any
+ *  error path so the import still proceeds biography-only. */
+function buildActorItems(
+  payload:   FoundryActorResponse,
+  actorName: string,
+): DnD5eItemData[] {
+  const rawActions = payload.front_matter.actions as ActionsFromPayload | undefined;
+  if (!rawActions || typeof rawActions !== "object") return [];
+  if (!Array.isArray(rawActions.items) || rawActions.items.length === 0) return [];
+  if (rawActions.ruleset !== "dnd5e") {
+    log.warn(
+      `actions.ruleset="${rawActions.ruleset}" unsupported in v1 — skipping embedded items. ` +
+      `Biography + stats still populate.`,
+    );
+    return [];
+  }
+  try {
+    return buildDnD5eItems(rawActions, { actorName });
+  } catch (e) {
+    log.warn("dnd5e items translation failed; importing without embedded items", e);
+    return [];
+  }
 }

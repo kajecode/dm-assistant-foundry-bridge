@@ -12,6 +12,8 @@
 
 import type { ActorImportData, FlagKind, JournalImportData } from "../translators/common/buildActorData.js";
 import { MODULE_ID, flagKindFor } from "../translators/common/buildActorData.js";
+import type { DnD5eItemData } from "../translators/dnd5e/items.js";
+import { ITEM_SOURCE_MARKER } from "../translators/dnd5e/items.js";
 import type { ActorKind } from "../api/types.js";
 import { log } from "../lib/log.js";
 
@@ -21,6 +23,23 @@ interface FoundryDocLike {
   getFlag:   (scope: string, key: string) => unknown;
   update:    (data: Record<string, unknown>) => Promise<unknown>;
   delete:    () => Promise<unknown>;
+}
+
+/** Subset of `Item` document fields the items drift-pass reads. */
+interface FoundryItemLike {
+  id:      string;
+  getFlag: (scope: string, key: string) => unknown;
+}
+
+/** Subset of `Actor` document API the items drift-pass uses. The
+ *  v13 actor's `items` collection exposes the same Array-like
+ *  `.contents` shape as `pages` on JournalEntry. */
+interface FoundryActorLike extends FoundryDocLike {
+  items: {
+    contents?: FoundryItemLike[];
+  };
+  deleteEmbeddedDocuments: (type: string, ids: string[]) => Promise<unknown>;
+  createEmbeddedDocuments: (type: string, data: unknown[]) => Promise<unknown>;
 }
 
 interface FoundryEmbeddedPage {
@@ -41,7 +60,7 @@ interface FoundryJournalLike extends FoundryDocLike {
 }
 
 interface FoundryActorClass {
-  create:  (data: Record<string, unknown>) => Promise<FoundryDocLike | null>;
+  create:  (data: Record<string, unknown>) => Promise<FoundryActorLike | null>;
 }
 
 interface FoundryJournalClass {
@@ -51,8 +70,8 @@ interface FoundryJournalClass {
 declare const Actor:        FoundryActorClass;
 declare const JournalEntry: FoundryJournalClass;
 declare const game: {
-  actors:   { find: (cb: (d: FoundryDocLike) => boolean)       => FoundryDocLike | undefined };
-  journal:  { find: (cb: (d: FoundryJournalLike) => boolean)  => FoundryJournalLike | undefined };
+  actors:   { find: (cb: (d: FoundryActorLike) => boolean)       => FoundryActorLike | undefined };
+  journal:  { find: (cb: (d: FoundryJournalLike) => boolean)    => FoundryJournalLike | undefined };
 };
 
 export type PersistResult = "created" | "updated";
@@ -85,7 +104,22 @@ function matchesSlug(d: FoundryDocLike, slug: string, campaignId: string, kind: 
   return flagKind === kind;
 }
 
-export async function createOrUpdateActor(actor: ActorImportData): Promise<PersistResult> {
+/**
+ * Create or update an Actor + sync its embedded `Item` documents
+ * (bridge#20). The drift policy for items mirrors journal pages: on
+ * re-import we drop the bridge-marked items and re-create from the
+ * translated list. User-authored items (no `dm-assistant` source
+ * flag) are left untouched.
+ *
+ * `items` is optional; pass `[]` when the payload had no embedded
+ * actions (or pre-#485 dm-assistant). In that case the existing
+ * actor still gets any prior bridge-marked items removed — the
+ * import becomes a "no items" assertion.
+ */
+export async function createOrUpdateActor(
+  actor: ActorImportData,
+  items: DnD5eItemData[] = [],
+): Promise<PersistResult> {
   const slug       = actor.flags[MODULE_ID].slug;
   const campaignId = actor.flags[MODULE_ID].campaign_id;
   // Identity discriminant comes from the actor data's own flag, so
@@ -95,12 +129,51 @@ export async function createOrUpdateActor(actor: ActorImportData): Promise<Persi
   const existing   = game.actors.find((a) => matchesSlug(a, slug, campaignId, flagKind));
   if (existing) {
     await existing.update(actor as unknown as Record<string, unknown>);
-    log.info("actor updated", flagKind, slug, existing.uuid);
+    await syncEmbeddedItems(existing, items, slug);
+    log.info("actor updated", flagKind, slug, existing.uuid, `(${items.length} items)`);
     return "updated";
   }
   const created = await Actor.create(actor as unknown as Record<string, unknown>);
-  log.info("actor created", flagKind, slug, created?.uuid);
+  if (created && items.length > 0) {
+    await created.createEmbeddedDocuments("Item", items);
+  }
+  log.info("actor created", flagKind, slug, created?.uuid, `(${items.length} items)`);
   return "created";
+}
+
+
+/**
+ * Drop-and-replace sync for the actor's embedded Items.
+ *
+ *   1. Filter actor.items by `flags.dm-assistant-bridge.source ===
+ *      "dm-assistant"` — leaves user-authored items alone.
+ *   2. Delete the bridge-marked items via the embedded-document
+ *      API (a bare `actor.update({items: [...]})` would either
+ *      duplicate or be ignored — Foundry requires explicit
+ *      embedded-doc mutations).
+ *   3. Create the freshly-translated items.
+ *
+ * No-op when both the existing bridge-marked set and the new set
+ * are empty.
+ */
+async function syncEmbeddedItems(
+  actor: FoundryActorLike,
+  items: DnD5eItemData[],
+  slug:  string,
+): Promise<void> {
+  const existing = actor.items.contents ?? [];
+  const bridgeMarkedIds = existing
+    .filter((it) => it.getFlag(MODULE_ID, "source") === ITEM_SOURCE_MARKER)
+    .map((it) => it.id);
+
+  if (bridgeMarkedIds.length > 0) {
+    await actor.deleteEmbeddedDocuments("Item", bridgeMarkedIds);
+    log.debug("items: deleted", bridgeMarkedIds.length, "bridge-marked items for", slug);
+  }
+  if (items.length > 0) {
+    await actor.createEmbeddedDocuments("Item", items);
+    log.debug("items: created", items.length, "items for", slug);
+  }
 }
 
 export async function createOrUpdateJournal(journal: JournalImportData): Promise<PersistResult> {

@@ -271,3 +271,70 @@ describe("buildImportBundle — variants", () => {
     expect(nameIdx).toBeGreaterThan(appIdx);
   });
 });
+
+
+describe("buildImportBundle — embedded items (bridge#20)", () => {
+  it("returns empty items array when payload lacks front_matter.actions", () => {
+    const bundle = buildImportBundle(makePayload(), { campaignId: "c" });
+    expect(bundle.items).toEqual([]);
+  });
+
+  it("returns empty items array when actions.items is empty", () => {
+    const payload = makePayload({
+      front_matter: { actions: { ruleset: "dnd5e", items: [] } },
+    });
+    const bundle = buildImportBundle(payload, { campaignId: "c" });
+    expect(bundle.items).toEqual([]);
+  });
+
+  it("translates dnd5e actions into embedded Item documents", () => {
+    const payload = makePayload({
+      front_matter: {
+        actions: {
+          ruleset: "dnd5e",
+          items: [
+            { name: "Slam", type: "weapon",
+              damage: { formula: "3d6+6", types: ["bludgeoning"] },
+              attack: { to_hit: 9, range: { value: 10, units: "ft" } },
+              activation: { type: "action", cost: 1 } },
+            { name: "Pack Tactics", type: "feat" },
+          ],
+        },
+      },
+    });
+    const bundle = buildImportBundle(payload, { campaignId: "c" });
+    expect(bundle.items).toHaveLength(2);
+    // Weapon + feat both get decorated with actor name.
+    expect(bundle.items[0]!.name).toBe("Slam (Aldric Harwick)");
+    expect(bundle.items[1]!.name).toBe("Pack Tactics (Aldric Harwick)");
+    // Source flag stamped for drop-and-replace.
+    expect(bundle.items[0]!.flags[MODULE_ID].source).toBe("dm-assistant");
+  });
+
+  it("skips items translation when actions.ruleset isn't dnd5e", () => {
+    const payload = makePayload({
+      front_matter: {
+        actions: {
+          ruleset: "pf2e",
+          items: [{ name: "Strike", type: "weapon" }],
+        },
+      },
+    });
+    const bundle = buildImportBundle(payload, { campaignId: "c" });
+    expect(bundle.items).toEqual([]);
+    // Actor + biography still come through — items skip is non-fatal.
+    expect(bundle.actor.name).toBe("Aldric Harwick");
+  });
+
+  it("preserves the actor build when actions field is malformed", () => {
+    // Bad shape — items is a string instead of an array.
+    const payload = makePayload({
+      front_matter: {
+        actions: { ruleset: "dnd5e", items: "not-an-array" },
+      },
+    });
+    const bundle = buildImportBundle(payload, { campaignId: "c" });
+    expect(bundle.items).toEqual([]);
+    expect(bundle.actor.name).toBe("Aldric Harwick");
+  });
+});

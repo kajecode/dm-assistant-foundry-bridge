@@ -115,7 +115,11 @@ export async function importActor(opts: ImportActorOptions): Promise<ImportActor
     ...withImagePaths(bundle.actor, portraitPath, thumbPath),
     folder: actorFolderId,
   };
-  const actorResult     = await createOrUpdateActor(actorWithImages);
+  // bridge#20 — embedded Items from the payload's `front_matter.actions`
+  // are persisted as actor.items[]. Empty array when the payload had
+  // no actions sidecar; the drop-and-replace cleanup still runs so
+  // stale bridge-marked items from a prior import are removed.
+  const actorResult     = await createOrUpdateActor(actorWithImages, bundle.items);
 
   let journalResult: PersistResult | "skipped" | "deleted";
   if (bundle.journal) {
