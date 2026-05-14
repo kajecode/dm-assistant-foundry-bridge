@@ -16,6 +16,7 @@ import { getSetting, registerSettings } from "./settings/register.js";
 import { ApiError, compareSemver, fetchHealth } from "./api/client.js";
 import { mountStatusIndicator, setStatus } from "./ui/statusIndicator.js";
 import { attachTestConnectionButton, type ProbeResult } from "./ui/testConnection.js";
+import { attachCampaignPicker } from "./ui/campaignPicker.js";
 import { openImportPicker } from "./ui/importPicker.js";
 import { explainError } from "./lib/errorHints.js";
 import { log } from "./lib/log.js";
@@ -186,7 +187,9 @@ Hooks.once("ready", () => {
 });
 
 Hooks.on("renderSettingsConfig", (_app: unknown, html: unknown) => {
-  attachTestConnectionButton(html as HTMLElement, runProbe);
+  const root = html as HTMLElement;
+  attachTestConnectionButton(root, runProbe);
+  attachCampaignPicker(root);
 });
 
 // Foundry re-renders the players list on every join/leave + on

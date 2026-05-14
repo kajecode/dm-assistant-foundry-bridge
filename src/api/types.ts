@@ -35,6 +35,20 @@ export interface FoundrySection {
  *  NPCs. PC joins later when dm-assistant#248 stabilises. */
 export type ActorKind = "npc" | "creature";
 
+/** Item shape from `GET /campaigns?role=dm`. Drives the settings
+ *  campaign-picker dropdown (#12). Not a `/foundry/*` route — never
+ *  API-key gated. */
+export interface CampaignSummary {
+  id:           string;
+  name:         string;
+  game_system:  string;
+  chroma_ready: boolean;
+}
+
+export interface CampaignListResponse {
+  campaigns: CampaignSummary[];
+}
+
 export interface SavedNpcSummary {
   slug:        string;
   name:        string;

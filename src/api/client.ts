@@ -9,6 +9,8 @@
 
 import type {
   ActorKind,
+  CampaignListResponse,
+  CampaignSummary,
   FoundryActorResponse,
   FoundryHealthResponse,
   FoundryLocationResponse,
@@ -170,6 +172,52 @@ export async function fetchHealth(opts: ClientOptions): Promise<FoundryHealthRes
     );
   }
 }
+
+/**
+ * Fetch the list of dm-assistant campaigns. Drives the settings
+ * campaign-picker dropdown (#12). NOT a `/foundry/*` route — never
+ * API-key gated, so callers can probe this even when the bridge has
+ * no API key configured yet.
+ *
+ * Returns the raw summaries; UI is responsible for sorting + display.
+ */
+export async function listCampaigns(
+  opts: ClientOptions,
+): Promise<CampaignSummary[]> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base) throw new ApiError("baseUrl is empty", { kind: "config" });
+
+  const url = `${base}/campaigns?role=dm`;
+  const ctrl = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 5000;
+  try {
+    const res = await withTimeout(
+      // /campaigns is not API-key gated; sending the header is
+      // harmless but we omit it to keep the request light.
+      fetch(url, { signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url });
+    }
+    const body = (await res.json()) as CampaignListResponse;
+    if (!Array.isArray(body.campaigns)) {
+      throw new ApiError("Response missing 'campaigns' array", { kind: "shape", url });
+    }
+    return body.campaigns;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
 
 export interface NpcFetchOptions extends ClientOptions {
   campaignId: string;

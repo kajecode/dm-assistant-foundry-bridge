@@ -14,6 +14,24 @@ dm-assistant `/foundry/*` endpoint family) via the
 `module.json`. Bumping that field is a breaking change for users running
 older dm-assistant deployments; flag it explicitly in the entry below.
 
+
+## [0.4.1] — 2026-05-14
+
+### Added
+
+- **Campaign picker dropdown** (#12). The Settings panel's `Campaign ID` field is now sourced from dm-assistant's `GET /campaigns` endpoint — pick from known-good values instead of typing a slug. Surfaced as a `<select>` populated on settings-panel render, with a refresh button for after-the-fact changes. Sorted alphabetically by name; each option shows `<id> — <name> (<game_system>)`. Pre-selects the currently-saved campaign id; a stale id (campaign was deleted on the server side) shows as a distinct `<id> — (not in server list)` option so the operator can re-pick.
+- **Free-text fallback** when `/campaigns` is unreachable (CORS / wrong URL / server down / 5xx). The original text input stays in place with the existing trim-on-read defence, plus an inline hint explaining the fallback in operator-friendly copy.
+- **`listCampaigns()`** in the API client. NOT a `/foundry/*` route — never API-key gated, so the dropdown probes even from an unconfigured bridge.
+
+### Why this matters
+
+The free-text input caused two trippable bugs during v0.1.0 smoke: accidental leading whitespace (now also defended in the dropdown), and confusing the Kanka campaign id with the dm-assistant slug. Both are eliminated when the operator picks from a list.
+
+### Internal
+
+- 12 new tests pin the picker UI: dropdown render, sort, current-id preselection, stale-id surfacing, mirror-back-to-input, fallback paths (network / HTTP / empty / no-baseUrl / no-input).
+- 5 new tests in `api-client.test.ts` for `listCampaigns` (happy path, no-api-key, shape error, HTTP error, config error).
+
 ## [0.4.0] — 2026-05-13
 
 > ⚠ **Breaking for users on dm-assistant < 0.25.0.** `min-api-contract-version`

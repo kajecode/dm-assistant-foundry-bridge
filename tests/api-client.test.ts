@@ -11,6 +11,7 @@ import {
   compareSemver,
   fetchActor,
   fetchHealth,
+  listCampaigns,
   fetchImageBytes,
   fetchNpc,
   listCreatures,
@@ -396,6 +397,71 @@ describe("listNpcs", () => {
     await expect(
       listNpcs({ baseUrl: "http://x", campaignId: "c" }),
     ).rejects.toMatchObject({ kind: "shape" });
+  });
+});
+
+describe("listCampaigns", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("hits /campaigns and returns the campaigns array", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          campaigns: [
+            { id: "a", name: "Alpha", game_system: "D&D 5e", chroma_ready: true  },
+            { id: "b", name: "Beta",  game_system: "",       chroma_ready: false },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const out = await listCampaigns({ baseUrl: "http://api" });
+    expect(out).toHaveLength(2);
+    expect(out[0]!.id).toBe("a");
+    expect(out[1]!.chroma_ready).toBe(false);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/campaigns?role=dm",
+      expect.anything(),
+    );
+  });
+
+  it("does NOT send X-API-Key — /campaigns is not API-key gated", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ campaigns: [] }), { status: 200 }),
+    );
+    await listCampaigns({ baseUrl: "http://x", apiKey: "secret-key" });
+    const init = fetchSpy.mock.calls[0]![1] as RequestInit;
+    // No headers object → no X-API-Key. Sending the key is harmless
+    // but we want to keep /campaigns probable from an unconfigured
+    // bridge (apiKey can be empty during initial setup).
+    expect(init.headers).toBeUndefined();
+  });
+
+  it("throws kind=shape when response missing campaigns array", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+    await expect(
+      listCampaigns({ baseUrl: "http://x" }),
+    ).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("throws kind=http on non-2xx response", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response("", { status: 500 }));
+    await expect(
+      listCampaigns({ baseUrl: "http://x" }),
+    ).rejects.toMatchObject({ kind: "http", status: 500 });
+  });
+
+  it("throws kind=config when baseUrl is empty", async () => {
+    await expect(
+      listCampaigns({ baseUrl: "" }),
+    ).rejects.toMatchObject({ kind: "config" });
   });
 });
 

@@ -11,7 +11,7 @@
       },
       "campaignId": {
         "name": "Campaign ID",
-        "hint": "The dm-assistant campaign to pull from. Find it in the dm-assistant sidebar."
+        "hint": "The dm-assistant campaign to pull from. Picked from a dropdown sourced from your server when reachable; otherwise falls back to free text."
       },
       "useCampaignCodex": {
         "name": "Use Campaign Codex when available",
