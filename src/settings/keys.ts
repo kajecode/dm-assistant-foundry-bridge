@@ -15,6 +15,7 @@ export const SETTING = {
   useCampaignCodex: "useCampaignCodex",
   folderPrefix:     "folderPrefix",
   dataPathPrefix:   "dataPathPrefix",
+  itemCompendiums:  "itemCompendiums",
 } as const;
 
 export type SettingKey = (typeof SETTING)[keyof typeof SETTING];

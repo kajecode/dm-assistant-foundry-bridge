@@ -57,6 +57,21 @@ export interface DnD5eItemData {
     [MODULE_ID]: {
       slug:   string;             // stable across re-imports (item name slugified)
       source: typeof ITEM_SOURCE_MARKER;
+      /** Original item name as written by the LLM (pre-decoration).
+       *  The compendium resolver (#32) name-searches on this, not
+       *  the `(actor)`-suffixed display name. */
+      origin_name?: string;
+      /** dm-assistant#485 `items[].compendium_source` passthrough
+       *  (e.g. `"dnd5e.items.Longsword"`). Null today — populated by
+       *  #481 v2. When set, the compendium resolver (#32) prefers it
+       *  over a name search. */
+      compendium_source?: string | null;
+      /** Set by the compendium resolver (#32) when this item's data
+       *  was sourced from a compendium document rather than the LLM
+       *  stub. Carries the resolved compendium UUID for provenance +
+       *  the world-Items-folder copy's idempotency key. Absent on
+       *  unresolved stubs. */
+      resolved_from?: string;
     };
   };
 }
@@ -108,8 +123,10 @@ function translateItem(
     system,
     flags: {
       [MODULE_ID]: {
-        slug:   slugifyItemName(item.name),
-        source: ITEM_SOURCE_MARKER,
+        slug:        slugifyItemName(item.name),
+        source:      ITEM_SOURCE_MARKER,
+        origin_name: item.name,
+        compendium_source: item.compendium_source ?? null,
       },
     },
   };

@@ -167,6 +167,16 @@ export async function resolveJournalFolderId(
   return findOrCreateFolder(folderNameFor(entityKind, "journal"), "JournalEntry");
 }
 
+/**
+ * Resolve the Item-folder ID for compendium-resolved items (#32).
+ * `<prefix> — Items` is a browsable world library of the fully-
+ * statted compendium documents the resolver copied in. Distinct
+ * sidebar tree from Actor / JournalEntry folders.
+ */
+export async function resolveItemsFolderId(): Promise<string> {
+  return findOrCreateFolder(`${getPrefix()} — Items`, "Item");
+}
+
 // Test-only hook: lets unit tests inject fake `game.folders` +
 // `Folder` globals without monkey-patching the production module.
 // Not part of the runtime API.

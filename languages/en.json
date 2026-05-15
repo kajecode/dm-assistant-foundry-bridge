@@ -24,6 +24,10 @@
       "dataPathPrefix": {
         "name": "Foundry Data/ upload prefix",
         "hint": "Subfolder under Foundry's Data/ directory where imported NPC portraits and thumbnails are uploaded. Example: 'dm-assistant' puts files at Data/dm-assistant/<campaign>/npc/<slug>.png."
+      },
+      "itemCompendiums": {
+        "name": "Item compendiums to resolve against",
+        "hint": "When set, imported weapons / spells / equipment whose name matches a compendium item are replaced with the fully-statted compendium document (e.g. real Fireball mechanics from the dnd5e SRD or a DDB Importer pack). Empty = off (items stay LLM stubs). 'auto' = search every Item compendium. Or a comma-separated list of pack ids, e.g. 'dnd5e.items, world.homebrew'. An explicit compendium_source from dm-assistant always wins."
       }
     },
     "keybindings": {

@@ -37,6 +37,7 @@ import {
   type PersistResult,
 } from "../foundry/documents.js";
 import { resolveActorFolderId, resolveDmNotesFolderId } from "../foundry/folders.js";
+import { resolveItemsAgainstCompendiums } from "../foundry/compendiumResolve.js";
 import { uploadToFoundry } from "../foundry/upload.js";
 import { log } from "../lib/log.js";
 
@@ -119,7 +120,15 @@ export async function importActor(opts: ImportActorOptions): Promise<ImportActor
   // are persisted as actor.items[]. Empty array when the payload had
   // no actions sidecar; the drop-and-replace cleanup still runs so
   // stale bridge-marked items from a prior import are removed.
-  const actorResult     = await createOrUpdateActor(actorWithImages, bundle.items);
+  //
+  // bridge#32 — compendium-source resolution post-pass. Swaps stub
+  // items for fully-statted compendium documents when the operator
+  // has configured `itemCompendiums` (off by default → pure stubs).
+  // Foundry-runtime step, so it runs here in the orchestrator, not
+  // in the pure translator. Never throws — a miss degrades to the
+  // stub.
+  const resolvedItems  = await resolveItemsAgainstCompendiums(bundle.items);
+  const actorResult     = await createOrUpdateActor(actorWithImages, resolvedItems);
 
   let journalResult: PersistResult | "skipped" | "deleted";
   if (bundle.journal) {

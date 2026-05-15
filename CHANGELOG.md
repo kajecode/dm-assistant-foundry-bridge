@@ -15,6 +15,34 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.6.0] — 2026-05-15
+
+### Added
+
+- **Compendium-source resolution** (#32). Imported items can now be replaced with fully-statted compendium documents instead of LLM stubs. When an imported weapon / spell / equipment / consumable / tool / loot name matches an item in a configured compendium (the dnd5e SRD, a DDB Importer pack, homebrew, …), the bridge swaps the stub for the real compendium document — full mechanics, art, rules text.
+  - **New setting `Item compendiums to resolve against`** (`itemCompendiums`). Empty (default) = OFF: items stay v0.5.2 stubs, no behaviour change for existing worlds. `auto` = search every Item-type compendium. Or a comma-separated list of pack ids (`dnd5e.items, world.homebrew`). Unknown pack ids are logged + skipped, never fatal.
+  - **Resolution order**: an explicit `flags.dm-assistant-bridge.compendium_source` (the dm-assistant#485 reserved field, populated by #481 v2) wins via `fromUuid`; otherwise an **exact, normalised name match** (case / whitespace / quotes) against the configured packs. Exact-only at v1 — never resolves "Dagger" → "Dagger +1" (fuzzy is a documented follow-up).
+  - **Library copy**: matched compendium items are also copied (idempotently, keyed on the compendium UUID) into a browsable world `<prefix> — Items` folder. Best-effort — a copy failure is logged and never blocks the actor import.
+  - **Drift policy preserved**: resolved items keep the `source: "dm-assistant"` flag, so re-import drop-and-replace still cleans bridge items without touching user-authored ones. Native `flags.core.sourceId` records the compendium provenance so the dnd5e sheet shows "from compendium X".
+  - **Type guard**: a compendium doc whose type isn't a bridge item type (e.g. a "class" / "background" name collision) is rejected — the stub is kept rather than embedding a junk document.
+
+### Why
+
+Surfaced during the v0.5.0/v0.5.2 Pi smoke — the operator runs DDB Importer and wants real SRD/DDB items + spells on imported actors, not the thin LLM stubs. This upgrades the v0.5.2 spell/item stubs into mechanically-complete documents when a compendium match exists.
+
+### Internal
+
+- New `src/foundry/compendiumResolve.ts` — Foundry-runtime post-pass between the pure translator and persistence (the translator stays pure data; `importActor` runs the resolver before `createOrUpdateActor`). Never throws — a miss or error degrades to the v0.5.2 stub.
+- New `resolveItemsFolderId()` in `foundry/folders.ts` (proper public helper; `<prefix> — Items`, type `Item`).
+- `DnD5eItemData` bridge-flag block gains `origin_name` (the LLM's pre-decoration name — the resolver matches on this, not the `(actor)`-suffixed display name), `compendium_source` passthrough, and `resolved_from` provenance.
+- 13 new tests (resolver match / no-match / precedence / fallback / type-guard / idempotent library copy / never-throws / name normalisation). 224/224 total pass.
+
+### Compatibility
+
+- **No API contract change.** `min-api-contract-version` stays `0.4.0`.
+- **Opt-in.** Existing worlds see no change until the operator sets `itemCompendiums`.
+
+
 ## [0.5.2] — 2026-05-15
 
 ### Fixed

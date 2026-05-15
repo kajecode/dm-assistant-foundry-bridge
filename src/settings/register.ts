@@ -94,6 +94,22 @@ export function registerSettings(onConnChange: OnConnectionSettingChange): void 
     type:    String,
     default: "dm-assistant",
   });
+
+  // #32 — compendium-source resolution. Empty (default) = OFF: items
+  // stay LLM stubs (v0.5.2 behaviour, no surprise for existing
+  // worlds). `auto` = search every Item-type compendium. Otherwise a
+  // comma-separated list of pack collection ids
+  // (e.g. "dnd5e.items, world.my-homebrew-items"). An explicit
+  // `items[].compendium_source` from dm-assistant always wins
+  // regardless of this setting.
+  game.settings.register(MODULE_ID, SETTING.itemCompendiums, {
+    name:    "DM-ASSISTANT-BRIDGE.settings.itemCompendiums.name",
+    hint:    "DM-ASSISTANT-BRIDGE.settings.itemCompendiums.hint",
+    scope:   "world",
+    config:  true,
+    type:    String,
+    default: "",
+  });
 }
 
 /**
