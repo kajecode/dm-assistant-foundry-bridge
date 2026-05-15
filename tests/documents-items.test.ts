@@ -158,7 +158,7 @@ describe("createOrUpdateActor — embedded items sync", () => {
     fakeActors = [];
     vi.stubGlobal("Actor", {
       create: vi.fn(async (data: Record<string, unknown>) => {
-        const flags = (data.flags as { [k: string]: { slug: string; campaign_id: string; kind: string } })[MODULE_ID];
+        const flags = (data.flags as { [k: string]: { slug: string; campaign_id: string; kind: string } })[MODULE_ID]!;
         const created = makeFakeActor({
           id:         `created-${flags.slug}`,
           slug:       flags.slug,

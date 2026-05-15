@@ -190,6 +190,18 @@ describe("weapon translation", () => {
     expect(activity.attack.type.value).toBe("melee");
   });
 
+  // Foundry's dnd5e v5.x AttackActivity validates `_id` against
+  // /^[a-zA-Z0-9]{16}$/. A bad ID was silently dropping the activity
+  // at import-time in v0.5.0 — weapons appeared but attack rolls
+  // didn't wire up. Pin the format here.
+  it("uses a valid 16-character alphanumeric Foundry id for the activity key and _id", () => {
+    const out = buildDnD5eItems(_payloadWith([_SLAM]), { actorName: "Giant" });
+    const activities = out[0]!.system.activities as Record<string, { _id: string }>;
+    const [key, activity] = Object.entries(activities)[0]!;
+    expect(key).toMatch(/^[a-zA-Z0-9]{16}$/);
+    expect(activity._id).toBe(key);
+  });
+
   it("uses ranged classification when range > 5ft", () => {
     const out = buildDnD5eItems(
       _payloadWith([{
