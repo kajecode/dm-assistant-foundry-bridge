@@ -175,9 +175,34 @@ describe("resolveItemsAgainstCompendiums", () => {
     // Bridge drift flag preserved so drop-and-replace still works.
     expect(r.flags[MODULE_ID].source).toBe(ITEM_SOURCE_MARKER);
     expect(r.flags[MODULE_ID].resolved_from).toBe("Compendium.dnd5e.items.Item.ls");
-    // Native Foundry provenance set.
-    expect((r.flags as Record<string, { sourceId?: string }>).core.sourceId)
+    // Native Foundry v12+ provenance via _stats.compendiumSource —
+    // NOT the deprecated flags.core.sourceId (removed in v14).
+    expect((r as unknown as { _stats?: { compendiumSource?: string } })._stats?.compendiumSource)
       .toBe("Compendium.dnd5e.items.Item.ls");
+    expect((r.flags as Record<string, { sourceId?: string }>).core)
+      .toBeUndefined();
+  });
+
+  it("strips a deprecated core.sourceId the compendium item carried", async () => {
+    // DDB Importer packs stamp the legacy flags.core.sourceId. We
+    // must drop it on resolution (deprecated v12, removed v14,
+    // console-spams v13) and use _stats.compendiumSource instead.
+    const d = fakeDoc("Compendium.world.ddb.Item.fb", "Fireball", "spell", { level: 3 });
+    (d.obj.flags as Record<string, unknown>).core = {
+      sourceId: "Compendium.world.ddb.Item.legacy-ref",
+      otherCoreFlag: true,
+    };
+    packs = [makePack("world.ddb", [d])];
+    installGlobals("auto");
+    const out = await resolveItemsAgainstCompendiums([stub("Fireball", { type: "spell" })]);
+    const r = out[0]!;
+    const core = (r.flags as Record<string, Record<string, unknown> | undefined>).core;
+    // Deprecated sourceId gone; sibling core flags preserved.
+    expect(core?.sourceId).toBeUndefined();
+    expect(core?.otherCoreFlag).toBe(true);
+    // Provenance moved to the non-deprecated slot.
+    expect((r as unknown as { _stats?: { compendiumSource?: string } })._stats?.compendiumSource)
+      .toBe(d.uuid);
   });
 
   it("keeps the stub when no compendium matches", async () => {

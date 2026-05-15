@@ -277,12 +277,9 @@ function buildResolved(
     system: (rest.system ?? {}) as Record<string, unknown>,
     flags: {
       // Preserve any non-bridge flags the compendium item carried
-      // (dnd5e provenance, etc.), then layer the bridge drift block.
-      ...(rawFlags ?? {}),
-      core: {
-        ...((rawFlags?.core as Record<string, unknown>) ?? {}),
-        sourceId: doc.uuid,              // native Foundry "from compendium" provenance
-      },
+      // (dnd5e provenance etc.) — but drop the deprecated
+      // `core.sourceId` so we don't reintroduce the v12 deprecation.
+      ...stripDeprecatedCoreSourceId(rawFlags),
       [MODULE_ID]: {
         slug:              flag.slug,
         source:            ITEM_SOURCE_MARKER,
@@ -300,7 +297,37 @@ function buildResolved(
     (data as unknown as Record<string, unknown>).effects = (rest as Record<string, unknown>).effects;
   }
 
+  // Foundry v12+ native compendium provenance. `flags.core.sourceId`
+  // is deprecated (removed in v14; console-spams under v13's
+  // compatibility shim) — `_stats.compendiumSource` is the correct
+  // slot. The bridge targets v13, so this is the forward-safe write.
+  // Not on the DnD5eItemData type (same as `effects`); attached via
+  // the established cast pattern. Foundry fills the rest of `_stats`
+  // (timestamps etc.) on create.
+  (data as unknown as Record<string, unknown>)._stats = {
+    compendiumSource: doc.uuid,
+  };
+
   return { data, raw, uuid: doc.uuid };
+}
+
+
+/** Drop the deprecated `core.sourceId` from a compendium item's
+ *  inherited flags so resolved items don't reintroduce the v12
+ *  deprecation. `_stats.compendiumSource` carries provenance now.
+ *  Other `core.*` flags + non-core flag scopes pass through. */
+function stripDeprecatedCoreSourceId(
+  rawFlags: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!rawFlags) return {};
+  const { core, ...otherScopes } = rawFlags as {
+    core?: Record<string, unknown>;
+  } & Record<string, unknown>;
+  if (!core) return { ...otherScopes };
+  const { sourceId: _droppedSourceId, ...coreRest } = core;
+  return Object.keys(coreRest).length > 0
+    ? { ...otherScopes, core: coreRest }
+    : { ...otherScopes };
 }
 
 
@@ -327,12 +354,10 @@ async function copyToItemsFolder(
     await Item.create({
       ...clean,
       folder: folderId,
+      // v12+ native provenance (not the deprecated core.sourceId).
+      _stats: { compendiumSource: uuid },
       flags: {
-        ...((clean.flags as Record<string, unknown>) ?? {}),
-        core: {
-          ...(((clean.flags as Record<string, unknown>)?.core as Record<string, unknown>) ?? {}),
-          sourceId: uuid,
-        },
+        ...stripDeprecatedCoreSourceId(clean.flags as Record<string, unknown> | undefined),
         [MODULE_ID]: {
           slug:          stub.flags[MODULE_ID].slug,
           source:        ITEM_SOURCE_MARKER,

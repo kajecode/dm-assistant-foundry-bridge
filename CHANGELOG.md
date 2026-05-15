@@ -15,6 +15,23 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.6.1] — 2026-05-15
+
+### Fixed
+
+- **Compendium-resolved items used the deprecated `flags.core.sourceId`** for provenance. Foundry deprecated it in v12 (removed in v14; under v13 every read logs a compatibility error — caught immediately in the v0.6.0 Pi smoke as console spam). v0.6.1 writes `_stats.compendiumSource` instead (the v12+ correct slot; the bridge targets v13 so this is forward-safe through v14). Applies to both the actor-embedded resolved item and the `<prefix> — Items` library copy.
+- **Deprecated `core.sourceId` is now stripped off compendium items that carried it.** DDB Importer packs stamp `flags.core.sourceId` on their documents; without stripping, resolved items would re-introduce the deprecation on every import. Sibling `core.*` flags + non-core flag scopes are preserved untouched.
+
+### Internal
+
+- New `stripDeprecatedCoreSourceId()` helper. `_stats.compendiumSource` attached via the same post-construction cast pattern as `effects` (neither is on the `DnD5eItemData` type — they're Foundry-managed extras).
+- 1 new test pins the strip-and-relocate behaviour; the exact-match test now asserts `_stats.compendiumSource` + absence of `flags.core`. 225/225 pass.
+
+### Compatibility
+
+- No API contract change; `min-api-contract-version` stays `0.4.0`. Pure provenance-slot fix — no behaviour change to matching, drift, or the library copy.
+
+
 ## [0.6.0] — 2026-05-15
 
 ### Added
