@@ -15,6 +15,20 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.5.1] — 2026-05-14
+
+### Fixed
+
+- **Activity `_id` length for weapon items** (#30). The synthesised `AttackActivity`
+  was assigned the hardcoded key `dmaImport0001` (13 characters). Foundry dnd5e v5.x
+  validates every activity `_id` against `/^[a-zA-Z0-9]{16}$/`; a 13-character id
+  fails silently — the activity object is discarded, so imported weapons appeared in
+  the actor sheet but their attack-roll buttons did nothing. Fix generates a random
+  16-character alphanumeric id at translation time. Also includes a drive-by typecheck
+  correction in `tests/documents-items.test.ts` that was blocking CI under the stricter
+  compiler settings introduced in v0.5.0.
+
+
 ## [0.5.0] — 2026-05-14
 
 > ⚠ **Breaking for users on dm-assistant < 0.28.0.** `min-api-contract-version`
