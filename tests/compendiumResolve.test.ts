@@ -10,6 +10,9 @@
  *   - exact (normalised) name match → compendium data swapped in
  *   - no match → stub preserved
  *   - explicit compendium_source precedence (via fromUuid)
+ *   - object_slug resolution (#502 v2a): dm-a object payload wins
+ *     over name-search; type coercion; image URL; fetch-fail
+ *     fallback; no-ctx skip; no library copy
  *   - bridge drift flag preserved on the resolved item
  *   - non-bridge compendium type (e.g. "class") rejected → stub kept
  *   - Items-folder library copy is idempotent + non-fatal
@@ -33,6 +36,7 @@ import {
 function stub(name: string, opts: Partial<{
   type: DnD5eItemData["type"];
   compendiumSource: string | null;
+  objectSlug: string | null;
 }> = {}): DnD5eItemData {
   return {
     name: `${name} (Elowen Tristane)`,        // display name is decorated
@@ -44,8 +48,45 @@ function stub(name: string, opts: Partial<{
         source:            ITEM_SOURCE_MARKER,
         origin_name:       name,                // resolver matches on THIS
         compendium_source: opts.compendiumSource ?? null,
+        object_slug:       opts.objectSlug ?? null,
       },
     },
+  };
+}
+
+const OBJ_CTX = { baseUrl: "https://dm.example/api", campaignId: "c" };
+
+/** Stub global `fetch` so the resolver's `fetchObject` call resolves
+ *  to a dm-a `/foundry/object/{slug}` payload (or an error). */
+function stubObjectFetch(
+  payload: Record<string, unknown> | null,
+  status = 200,
+): ReturnType<typeof vi.fn> {
+  const spy = vi.fn(async () =>
+    payload === null
+      ? new Response("not found", { status: status === 200 ? 404 : status })
+      : new Response(JSON.stringify(payload), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+  );
+  vi.stubGlobal("fetch", spy);
+  return spy;
+}
+
+function objectPayload(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    slug:           "thorncall-blade",
+    kind:           "object",
+    name:           "Thorncall Blade",
+    display_name:   "Thorncall Blade",
+    item_type:      "weapon",
+    description_md: "# Thorncall Blade\n\nA black-iron longsword that hums.",
+    image_url:      null,
+    thumb_url:      null,
+    front_matter:   {},
+    audit: { source_path: "data/c/documents/dm/object_thorncall-blade.md", modified_at: "x" },
+    ...over,
   };
 }
 
@@ -287,6 +328,126 @@ describe("resolveItemsAgainstCompendiums", () => {
     const stubs = [stub("Longsword")];
     const out   = await resolveItemsAgainstCompendiums(stubs);
     expect(out[0]).toEqual(stubs[0]);          // nothing resolved, no crash
+  });
+});
+
+
+describe("object_slug resolution (#502 v2a)", () => {
+  beforeEach(() => {
+    packs   = [];
+    uuidMap = new Map();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("resolves an object_slug item to the dm-a object payload", async () => {
+    installGlobals("");                       // compendium feature off
+    stubObjectFetch(objectPayload());
+    const out = await resolveItemsAgainstCompendiums(
+      [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })],
+      OBJ_CTX,
+    );
+    const item = out[0]!;
+    expect(item.name).toBe("Thorncall Blade");          // authored name, NOT decorated
+    expect(item.type).toBe("weapon");
+    expect(item.system).toHaveProperty("description");
+    expect((item.system.description as { value: string }).value)
+      .toContain("black-iron longsword");               // markdown rendered
+    expect(item.flags[MODULE_ID].source).toBe(ITEM_SOURCE_MARKER);  // drift flag kept
+    expect(item.flags[MODULE_ID].object_slug).toBe("thorncall-blade");
+    expect(item.flags[MODULE_ID].resolved_from).toBe("dm-assistant:object/thorncall-blade");
+  });
+
+  it("hits the documented /foundry/object/{slug} URL with role=dm", async () => {
+    installGlobals("");
+    const spy = stubObjectFetch(objectPayload());
+    await resolveItemsAgainstCompendiums(
+      [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })],
+      OBJ_CTX,
+    );
+    const url = String(spy.mock.calls[0]![0]);
+    expect(url).toBe(
+      "https://dm.example/api/foundry/object/thorncall-blade?campaign_id=c&role=dm",
+    );
+  });
+
+  it("object_slug wins over compendium name-search", async () => {
+    packs = [makePack("world.homebrew", [
+      fakeDoc("Compendium.world.homebrew.Item.x", "Thorncall Blade", "weapon", { wrong: true }),
+    ])];
+    installGlobals("auto");
+    stubObjectFetch(objectPayload());
+    const out = await resolveItemsAgainstCompendiums(
+      [stub("Thorncall Blade", { type: "weapon", objectSlug: "thorncall-blade" })],
+      OBJ_CTX,
+    );
+    // Object payload won — NOT the homebrew compendium doc.
+    expect(out[0]!.system).not.toEqual({ wrong: true });
+    expect(out[0]!.flags[MODULE_ID].resolved_from).toBe("dm-assistant:object/thorncall-blade");
+  });
+
+  it("coerces an unknown item_type to loot", async () => {
+    installGlobals("");
+    stubObjectFetch(objectPayload({ item_type: "wand-of-nonsense" }));
+    const out = await resolveItemsAgainstCompendiums(
+      [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })],
+      OBJ_CTX,
+    );
+    expect(out[0]!.type).toBe("loot");
+  });
+
+  it("builds an absolute image URL (de-duped /api) when image_url present", async () => {
+    installGlobals("");
+    stubObjectFetch(objectPayload({
+      image_url: "/api/object-generate/image/thorncall-blade?campaign_id=c",
+    }));
+    const out = await resolveItemsAgainstCompendiums(
+      [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })],
+      OBJ_CTX,
+    );
+    // base ends in /api AND path starts /api/ → de-duped, not doubled.
+    expect(out[0]!.img).toBe(
+      "https://dm.example/api/object-generate/image/thorncall-blade?campaign_id=c",
+    );
+  });
+
+  it("falls back to the compendium path when the object fetch fails", async () => {
+    packs = [makePack("dnd5e.items", [
+      fakeDoc("Compendium.dnd5e.items.Item.ls", "Thorncall Blade", "weapon", { fromComp: true }),
+    ])];
+    installGlobals("auto");
+    stubObjectFetch(null, 404);               // object endpoint 404s
+    const out = await resolveItemsAgainstCompendiums(
+      [stub("Thorncall Blade", { type: "weapon", objectSlug: "thorncall-blade" })],
+      OBJ_CTX,
+    );
+    expect(out[0]!.system).toEqual({ fromComp: true });   // fell through to #32
+  });
+
+  it("degrades to the stub when object fetch fails and no compendium match", async () => {
+    installGlobals("");
+    stubObjectFetch(null, 500);
+    const stubs = [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })];
+    const out   = await resolveItemsAgainstCompendiums(stubs, OBJ_CTX);
+    expect(out[0]).toEqual(stubs[0]);
+  });
+
+  it("skips object resolution entirely when no ctx is passed", async () => {
+    installGlobals("");
+    const spy = stubObjectFetch(objectPayload());
+    const stubs = [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })];
+    const out   = await resolveItemsAgainstCompendiums(stubs);   // no ctx
+    expect(spy).not.toHaveBeenCalled();
+    expect(out[0]).toEqual(stubs[0]);
+  });
+
+  it("does not make a library-folder copy for object-resolved items", async () => {
+    installGlobals("");
+    stubObjectFetch(objectPayload());
+    await resolveItemsAgainstCompendiums(
+      [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })],
+      OBJ_CTX,
+    );
+    expect(itemsCreated).toHaveLength(0);   // compendium-only behaviour
   });
 });
 

@@ -66,11 +66,21 @@ export interface DnD5eItemData {
        *  #481 v2. When set, the compendium resolver (#32) prefers it
        *  over a name search. */
       compendium_source?: string | null;
-      /** Set by the compendium resolver (#32) when this item's data
-       *  was sourced from a compendium document rather than the LLM
-       *  stub. Carries the resolved compendium UUID for provenance +
-       *  the world-Items-folder copy's idempotency key. Absent on
-       *  unresolved stubs. */
+      /** dm-assistant#502 v2a `items[].object_slug` passthrough — the
+       *  slug of a registered Objects-Library object whose name
+       *  matched this item (dm-a-internal deterministic match). When
+       *  set, the resolver fetches `GET /foundry/object/{slug}` and
+       *  builds the Item from the DM-authored object, taking
+       *  precedence over compendium name-search. Null/absent for SRD
+       *  gear (resolved by name-search) and invented items (stub). */
+      object_slug?: string | null;
+      /** Set by the resolver when this item's data was sourced from
+       *  a compendium document (#32 — carries the resolved compendium
+       *  UUID) OR from a dm-a Objects-Library object (#502 v2a —
+       *  carries `dm-assistant:object/<slug>`, a namespaced provenance
+       *  string, NOT a Foundry UUID; never fed to `fromUuid`). Doubles
+       *  as the world-Items-folder copy's idempotency key (compendium
+       *  path only). Absent on unresolved stubs. */
       resolved_from?: string;
     };
   };
@@ -127,6 +137,7 @@ function translateItem(
         source:      ITEM_SOURCE_MARKER,
         origin_name: item.name,
         compendium_source: item.compendium_source ?? null,
+        object_slug: item.object_slug ?? null,
       },
     },
   };

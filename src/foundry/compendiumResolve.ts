@@ -11,11 +11,22 @@
  * pure translator (`buildImportBundle`) and persistence
  * (`createOrUpdateActor`). For each stub it tries, in order:
  *
+ *   0. `flags.dm-assistant-bridge.object_slug` (dm-assistant#502 v2a)
+ *      — a registered Objects-Library object whose name matched this
+ *      item. Fetched via `GET /foundry/object/{slug}`. dm-a OWNS this
+ *      data so the link is authoritative; it's the homebrew path and
+ *      wins over everything below. **Narrative-only** in v2a: real
+ *      name + DM lore + image, mechanically a stub (no damage/attack,
+ *      exactly like the v0.5.2 spell stubs — the GM or v2b refines).
+ *      Skipped when no resolve context (baseUrl/campaignId) is
+ *      threaded through.
  *   1. An explicit `flags.dm-assistant-bridge.compendium_source`
- *      (dm-assistant#485 reserved field; populated by #481 v2).
- *      Resolved via `fromUuid`.
+ *      (dm-assistant#485 reserved field). Resolved via `fromUuid`.
+ *      Reserved/unpopulated in practice — dm-a structurally cannot
+ *      emit a valid Foundry UUID (the #502 architectural finding) —
+ *      but the path stays wired + tested (cheap, harmless).
  *   2. An exact (normalised) name match across the operator's
- *      configured Item compendiums.
+ *      configured Item compendiums (the SRD/DDB path).
  *
  * On a confident match the stub is replaced with the compendium
  * document's data — same `DnD5eItemData` shape so the persist layer
@@ -40,6 +51,9 @@ import {
   type DnD5eItemData,
 } from "../translators/dnd5e/items.js";
 import type { ActionItemType } from "../translators/dnd5e/types.js";
+import { fetchObject, joinApiPath } from "../api/client.js";
+import type { FoundryObjectResponse } from "../api/types.js";
+import { renderMarkdown } from "../lib/markdown.js";
 import { log } from "../lib/log.js";
 
 
@@ -86,28 +100,53 @@ declare function fromUuid(uuid: string): Promise<CompendiumDocLike | null>;
 // ─── Public entry point ────────────────────────────────────────────────────
 
 /**
- * Resolve a list of stub items against the configured compendiums.
- * Returns a new array (same length, same order) where matched stubs
- * are swapped for compendium-backed data and unmatched stubs pass
- * through verbatim.
+ * dm-a connection bits the resolver needs to fetch object payloads
+ * (`GET /foundry/object/{slug}`) for `object_slug`-linked items.
+ * Optional: when omitted (or `campaignId`/`baseUrl` empty) the
+ * object-resolution step is skipped and behaviour is exactly the
+ * pre-#502 compendium-only path. Keeps the resolver callable from
+ * tests / non-import contexts without an HTTP dependency.
+ */
+export interface ObjectResolveContext {
+  baseUrl:    string;
+  apiKey?:    string;
+  timeoutMs?: number;
+  campaignId: string;
+}
+
+/**
+ * Resolve a list of stub items. Returns a new array (same length,
+ * same order) where matched stubs are swapped for object-backed
+ * (dm-a Objects Library, #502 v2a) or compendium-backed (#32) data
+ * and unmatched stubs pass through verbatim.
  *
  * Never throws — a resolution failure for one item degrades that
  * item to its stub and is logged; the import always proceeds.
  */
 export async function resolveItemsAgainstCompendiums(
   stubs: DnD5eItemData[],
+  ctx?:  ObjectResolveContext,
 ): Promise<DnD5eItemData[]> {
   if (stubs.length === 0) return stubs;
 
   const setting = String(getSetting(SETTING.itemCompendiums) ?? "").trim();
   const packs   = selectPacks(setting);
 
-  // Feature off (empty setting) AND no item carries an explicit
-  // compendium_source → nothing to do, return stubs untouched.
+  const objCtx =
+    ctx && ctx.campaignId && String(ctx.baseUrl ?? "").trim()
+      ? ctx
+      : null;
+
+  // Nothing to do — return stubs untouched — only when ALL of:
+  // compendium feature off, no explicit compendium_source, and no
+  // object_slug we could resolve (either no item carries one, or no
+  // context to fetch with).
   const anyExplicit = stubs.some(
     (s) => !!s.flags[MODULE_ID].compendium_source,
   );
-  if (packs.length === 0 && !anyExplicit) return stubs;
+  const anyObjectLinked =
+    !!objCtx && stubs.some((s) => !!s.flags[MODULE_ID].object_slug);
+  if (packs.length === 0 && !anyExplicit && !anyObjectLinked) return stubs;
 
   let itemsFolderId: string | null = null;
   const ensureFolder = async (): Promise<string | null> => {
@@ -124,12 +163,22 @@ export async function resolveItemsAgainstCompendiums(
   const out: DnD5eItemData[] = [];
   for (const stub of stubs) {
     try {
-      const resolved = await resolveOne(stub, packs);
+      const resolved = await resolveOne(stub, packs, objCtx);
       if (resolved) {
         out.push(resolved.data);
-        const folderId = await ensureFolder();
-        if (folderId) {
-          await copyToItemsFolder(resolved.raw, resolved.uuid, stub, folderId);
+        // Library-folder copy is compendium-only: object-resolved
+        // items have no compendium document to browse, so they
+        // carry no `libraryCopy`.
+        if (resolved.libraryCopy) {
+          const folderId = await ensureFolder();
+          if (folderId) {
+            await copyToItemsFolder(
+              resolved.libraryCopy.raw,
+              resolved.libraryCopy.uuid,
+              stub,
+              folderId,
+            );
+          }
         }
       } else {
         out.push(stub);
@@ -182,19 +231,55 @@ function selectPacks(setting: string): CompendiumPackLike[] {
 
 interface ResolvedItem {
   data: DnD5eItemData;                 // resolved, persist-ready
-  raw:  Record<string, unknown>;       // the compendium toObject() (for the library copy)
-  uuid: string;                        // compendium provenance UUID
+  /** Present only for compendium-sourced resolutions — the raw
+   *  `toObject()` + UUID used for the browsable world-Items-folder
+   *  copy. Object-sourced (#502) resolutions omit it (no compendium
+   *  doc, nothing to copy). */
+  libraryCopy?: {
+    raw:  Record<string, unknown>;
+    uuid: string;
+  };
 }
 
 async function resolveOne(
   stub:  DnD5eItemData,
   packs: CompendiumPackLike[],
+  ctx:   ObjectResolveContext | null,
 ): Promise<ResolvedItem | null> {
   const flag = stub.flags[MODULE_ID];
 
-  // 1. Explicit compendium_source wins. dm-assistant#481 v2 will
-  //    populate this; format is assumed to be a Foundry UUID
-  //    (`Compendium.<pack>.Item.<id>`). If it doesn't resolve we
+  // 0. object_slug — dm-a's own Objects Library (#502 v2a). dm-a
+  //    OWNS this data, so the link is authoritative: it wins over
+  //    compendium_source AND name-search. Narrative-only (real name
+  //    + DM lore + image; mechanically a stub). A fetch failure logs
+  //    + falls through to the compendium path rather than failing.
+  if (flag.object_slug && ctx) {
+    try {
+      const obj = await fetchObject({
+        baseUrl:    ctx.baseUrl,
+        apiKey:     ctx.apiKey,
+        timeoutMs:  ctx.timeoutMs,
+        campaignId: ctx.campaignId,
+        slug:       flag.object_slug,
+      });
+      const built = buildFromObject(obj, stub, ctx.baseUrl);
+      log.info(
+        `compendium-resolve: "${flag.origin_name ?? stub.name}" → ` +
+        `dm-a object "${obj.slug}" (${obj.item_type})`,
+      );
+      return built;
+    } catch (e) {
+      log.debug(
+        `compendium-resolve: object_slug "${flag.object_slug}" did not ` +
+        `resolve; falling back to compendium path`, e,
+      );
+    }
+  }
+
+  // 1. Explicit compendium_source. Format is assumed to be a Foundry
+  //    UUID (`Compendium.<pack>.Item.<id>`). dm-a can't actually emit
+  //    one (the #502 finding) so this is effectively dead in practice,
+  //    but the path stays wired + tested. If it doesn't resolve we
   //    fall through to name search rather than failing.
   if (flag.compendium_source) {
     const doc = await fromUuid(flag.compendium_source).catch(() => null);
@@ -308,7 +393,70 @@ function buildResolved(
     compendiumSource: doc.uuid,
   };
 
-  return { data, raw, uuid: doc.uuid };
+  return { data, libraryCopy: { raw, uuid: doc.uuid } };
+}
+
+
+// ─── Object-Library resolution (#502 v2a — narrative round-trip) ───────────
+
+const _OBJECT_ALLOWED: ReadonlySet<ActionItemType> = new Set<ActionItemType>([
+  "weapon", "feat", "spell", "equipment", "consumable", "tool", "loot",
+]);
+
+/**
+ * Build a persist-ready `DnD5eItemData` from a dm-a Objects-Library
+ * payload. v2a is narrative-only: authoritative authored name + DM
+ * lore (rendered to HTML) + image; a clean stub `system` (no
+ * mechanics — the DM-authored object is identity-authoritative and
+ * mechanics are deliberately deferred to v2b, mirroring how v0.5.2
+ * spell stubs already work).
+ *
+ * The bridge drift marker (`source: "dm-assistant"`) is preserved so
+ * re-import drop-and-replace still cleans the item. `resolved_from`
+ * carries a namespaced `dm-assistant:object/<slug>` provenance string
+ * (NOT a Foundry UUID — never fed to `fromUuid`; no compendium copy).
+ */
+function buildFromObject(
+  obj:     FoundryObjectResponse,
+  stub:    DnD5eItemData,
+  baseUrl: string,
+): ResolvedItem {
+  const flag = stub.flags[MODULE_ID];
+
+  const rawType = (obj.item_type ?? "").trim().toLowerCase() as ActionItemType;
+  const type: ActionItemType = _OBJECT_ALLOWED.has(rawType) ? rawType : "loot";
+
+  const img = obj.image_url
+    ? joinApiPath(baseUrl, obj.image_url)
+    : stub.img;
+
+  const data: DnD5eItemData = {
+    // The authored object's real campaign name is authoritative —
+    // NOT the `(actor)`-decorated stub display name (that decoration
+    // is for natural attacks / SRD gear, not a named unique object).
+    name: obj.name,
+    type,
+    img,
+    system: {
+      description: {
+        value:        renderMarkdown(obj.description_md ?? ""),
+        chat:         "",
+        unidentified: "",
+      },
+    },
+    flags: {
+      [MODULE_ID]: {
+        slug:              flag.slug,
+        source:            ITEM_SOURCE_MARKER,
+        origin_name:       flag.origin_name ?? stub.name,
+        compendium_source: flag.compendium_source ?? null,
+        object_slug:       obj.slug,
+        resolved_from:     `dm-assistant:object/${obj.slug}`,
+      },
+    } as DnD5eItemData["flags"],
+  };
+
+  return { data };
 }
 
 

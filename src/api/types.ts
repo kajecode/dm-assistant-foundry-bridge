@@ -188,3 +188,29 @@ export interface FoundryLocationResponse {
 
 /** Union for code that handles both kinds via a single import flow. */
 export type FoundryJournalResponse = FoundryShopResponse | FoundryLocationResponse;
+
+/** `GET /foundry/object/{slug}` response (API contract 0.5.0+,
+ *  dm-assistant#502 v2a). The DM-authored Objects-Library object —
+ *  the deterministic homebrew half of item resolution. dm-a owns
+ *  this data so the `object_slug` link is reliable, unlike Foundry
+ *  `compendium_source` UUIDs (which dm-a structurally cannot emit).
+ *
+ *  **v2a is narrative-only**: `description_md` is prose, there are NO
+ *  structured dnd5e mechanics. `item_type` is a best-effort dnd5e
+ *  Item type (explicit front-matter wins; else keyword sniff; else
+ *  `loot`). v2b (mechanics sidecar) is spec'd in #502, not built. */
+export interface FoundryObjectResponse {
+  slug:           string;
+  kind:           "object";
+  name:           string;
+  display_name:   string;
+  item_type:      string;   // weapon|equipment|consumable|tool|loot
+  description_md: string;
+  image_url:      string | null;
+  thumb_url:      string | null;
+  front_matter:   Record<string, unknown>;
+  audit: {
+    source_path: string;
+    modified_at: string;
+  };
+}

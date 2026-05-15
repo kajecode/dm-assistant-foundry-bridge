@@ -24,6 +24,7 @@ import type {
   SavedNpcSummary,
   SavedShopListResponse,
   SavedShopSummary,
+  FoundryObjectResponse,
 } from "./types.js";
 
 /**
@@ -273,6 +274,77 @@ export async function fetchActor(opts: ActorFetchOptions): Promise<FoundryActorR
       { kind: "network", url, cause: e },
     );
   }
+}
+
+export interface ObjectFetchOptions extends ClientOptions {
+  campaignId: string;
+  slug:       string;
+}
+
+/**
+ * Fetch a registered Objects-Library object's import payload.
+ * Mirrors dm-assistant's `GET /foundry/object/{slug}?campaign_id=…
+ * &role=dm` (API contract 0.5.0+, #502 v2a). The compendium
+ * resolver calls this when an actions item carries `object_slug`
+ * — the deterministic homebrew path that takes precedence over
+ * name-search.
+ *
+ * Never used unless an item is object-linked; a failure here
+ * degrades that one item to its LLM stub (the resolver swallows
+ * the throw), so this is allowed to throw like the other fetchers.
+ */
+export async function fetchObject(opts: ObjectFetchOptions): Promise<FoundryObjectResponse> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty", { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+  if (!opts.slug)       throw new ApiError("slug is empty", { kind: "config" });
+
+  const url    = `${base}/foundry/object/${encodeURIComponent(opts.slug)}`
+               + `?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 10000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
+    }
+    const body = (await res.json()) as FoundryObjectResponse;
+    if (typeof body.slug !== "string" || body.kind !== "object") {
+      throw new ApiError("Response missing slug / wrong kind", { kind: "shape", url });
+    }
+    return body;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+/**
+ * Join a dm-assistant API base URL with a response-relative path
+ * (e.g. an `image_url`), de-duplicating the `/api` segment the same
+ * way `fetchImageBytes` does. The API is mounted at `/api`, yet
+ * response paths are themselves `/api/...`-prefixed — a naive
+ * concat doubles it. Exported so the compendium resolver can build
+ * an absolute object-image URL without re-deriving the rule.
+ */
+export function joinApiPath(baseUrl: string, path: string): string {
+  const base = normaliseBase(baseUrl);
+  let p = path;
+  if (base.endsWith("/api") && p.startsWith("/api/")) {
+    p = p.slice("/api".length);
+  }
+  return `${base}${p}`;
 }
 
 /**

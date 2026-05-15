@@ -14,6 +14,8 @@ import {
   listCampaigns,
   fetchImageBytes,
   fetchNpc,
+  fetchObject,
+  joinApiPath,
   listCreatures,
   listNpcs,
 } from "../src/api/client.js";
@@ -518,5 +520,75 @@ describe("fetchImageBytes", () => {
     await expect(
       fetchImageBytes({ baseUrl: "http://x", path: "/p" }),
     ).rejects.toMatchObject({ kind: "http", status: 404 });
+  });
+});
+
+describe("fetchObject (#502 v2a)", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ok = () =>
+    new Response(
+      JSON.stringify({
+        slug: "thorncall-blade", kind: "object",
+        name: "Thorncall Blade", display_name: "Thorncall Blade",
+        item_type: "weapon", description_md: "# Thorncall Blade",
+        image_url: null, thumb_url: null, front_matter: {},
+        audit: { source_path: "p", modified_at: "t" },
+      }),
+      { status: 200 },
+    );
+
+  it("hits /foundry/object/{slug} with role=dm, URL-encoded", async () => {
+    fetchSpy.mockResolvedValueOnce(ok());
+    const r = await fetchObject({ baseUrl: "http://api/", campaignId: "a b", slug: "x/y" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/foundry/object/x%2Fy?campaign_id=a%20b&role=dm",
+      expect.anything(),
+    );
+    expect(r.kind).toBe("object");
+    expect(r.slug).toBe("thorncall-blade");
+  });
+
+  it("rejects kind=config on empty slug", async () => {
+    await expect(
+      fetchObject({ baseUrl: "http://x", campaignId: "c", slug: "" }),
+    ).rejects.toMatchObject({ kind: "config" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("throws kind=shape when kind isn't 'object'", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ slug: "s", kind: "npc" }), { status: 200 }),
+    );
+    await expect(
+      fetchObject({ baseUrl: "http://x", campaignId: "c", slug: "s" }),
+    ).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("throws kind=http with status on non-2xx", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response("nope", { status: 404 }));
+    await expect(
+      fetchObject({ baseUrl: "http://x", campaignId: "c", slug: "s" }),
+    ).rejects.toMatchObject({ kind: "http", status: 404 });
+  });
+});
+
+describe("joinApiPath", () => {
+  it("de-dupes /api when base ends in /api and path starts /api/", () => {
+    expect(joinApiPath("https://d.example/api", "/api/object-generate/image/x?c=1"))
+      .toBe("https://d.example/api/object-generate/image/x?c=1");
+  });
+
+  it("concats normally when base has no /api suffix", () => {
+    expect(joinApiPath("https://d.example", "/api/foo")).toBe("https://d.example/api/foo");
+  });
+
+  it("trims trailing slashes off the base", () => {
+    expect(joinApiPath("https://d.example/api//", "/api/x")).toBe("https://d.example/api/x");
   });
 });

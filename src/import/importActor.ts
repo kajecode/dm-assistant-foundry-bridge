@@ -121,13 +121,18 @@ export async function importActor(opts: ImportActorOptions): Promise<ImportActor
   // no actions sidecar; the drop-and-replace cleanup still runs so
   // stale bridge-marked items from a prior import are removed.
   //
-  // bridge#32 — compendium-source resolution post-pass. Swaps stub
-  // items for fully-statted compendium documents when the operator
-  // has configured `itemCompendiums` (off by default → pure stubs).
-  // Foundry-runtime step, so it runs here in the orchestrator, not
-  // in the pure translator. Never throws — a miss degrades to the
-  // stub.
-  const resolvedItems  = await resolveItemsAgainstCompendiums(bundle.items);
+  // Item resolution post-pass. Precedence: object_slug (#502 v2a —
+  // dm-a Objects Library, authoritative homebrew, needs the dm-a
+  // connection ctx) → compendium_source / name-search (#32 — SRD/DDB,
+  // off by default via `itemCompendiums`) → LLM stub. Foundry-runtime
+  // step, so it runs here in the orchestrator, not in the pure
+  // translator. Never throws — a miss degrades to the stub.
+  const resolvedItems  = await resolveItemsAgainstCompendiums(bundle.items, {
+    baseUrl:    opts.baseUrl,
+    apiKey:     opts.apiKey,
+    timeoutMs:  opts.timeoutMs,
+    campaignId: opts.campaignId,
+  });
   const actorResult     = await createOrUpdateActor(actorWithImages, resolvedItems);
 
   let journalResult: PersistResult | "skipped" | "deleted";

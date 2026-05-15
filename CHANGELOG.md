@@ -15,6 +15,26 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.7.0] — 2026-05-15
+
+### Added
+
+- **Objects-Library round-trip** (dm-assistant#502 v2a) — the deterministic homebrew path of item resolution. When an imported actions item carries `object_slug` (set server-side by dm-a when the item name matched a registered campaign object), the bridge fetches `GET /foundry/object/{slug}` and builds the Item from the **DM-authored object**: its real campaign name, the DM's authored lore (rendered to HTML), and its image — instead of an LLM stub or a same-named compendium item.
+  - **Resolution precedence is now**: `object_slug` (dm-a Objects Library, authoritative — dm-a *owns* this data) → `compendium_source` / name-search (#32, the SRD/DDB path) → LLM stub. The object path wins because the DM deliberately authored that object; SRD gear still resolves via name-search, invented one-off items still stub.
+  - **Narrative-only in v2a.** The resolved object Item carries no structured dnd5e mechanics (no damage/attack) — exactly like the v0.5.2 spell stubs; the GM or a compendium refines mechanics. Full-mechanics objects (a stats sidecar) are v2b, spec'd in dm-assistant#502 and deferred.
+  - New `fetchObject()` API client + `joinApiPath()` helper (de-dupes the `/api` segment for absolute object-image URLs). Object resolution is skipped entirely when no dm-a connection context is available, and any fetch failure falls through to the compendium path then the stub — the import never fails on it.
+  - No browsable world-Items-folder copy for object-resolved items (that's compendium-only — there's no compendium document to copy).
+
+### ⚠️ Compatibility — breaking for older dm-assistant
+
+- **`min-api-contract-version` bumped `0.4.0` → `0.5.0`.** The `/foundry/object/{slug}` endpoint and the populated `object_slug` field ship in dm-assistant **v0.30.0**. Against an older dm-assistant the status indicator goes red and import is disabled until the operator upgrades — the standard probe behaviour. Upgrade dm-assistant to ≥ v0.30.0 before installing this bridge release.
+
+### Internal
+
+- `resolveItemsAgainstCompendiums()` takes an optional `ObjectResolveContext` ({baseUrl, apiKey, timeoutMs, campaignId}); `ResolvedItem` gained an optional `libraryCopy` (compendium path only). `DnD5eItemData` flags gained `object_slug` (passed through from the payload) and `resolved_from` now also carries the namespaced `dm-assistant:object/<slug>` provenance string (never a Foundry UUID; never fed to `fromUuid`).
+- 16 new tests (9 resolver object-path, 4 `fetchObject`, 3 `joinApiPath`). 241/241 pass.
+
+
 ## [0.6.1] — 2026-05-15
 
 ### Fixed
