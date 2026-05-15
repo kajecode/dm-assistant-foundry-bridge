@@ -232,7 +232,11 @@ function buildWeaponFields(item: ActionItemFromPayload): Record<string, unknown>
   // Minimal `activities` synthesis — keyed-dict per dnd5e v5.x. Foundry
   // looks at activities[*].type === "attack" to wire up the attack
   // roll. A single attack activity covers the natural-attack baseline.
-  const activityKey  = "dmaImport0001";  // stable key — dropped on re-import via the source flag
+  // The activity `_id` must match Foundry's 16-char alphanumeric ID
+  // contract (validated by `AttackActivity` in dnd5e v5.x). The whole
+  // item is dropped + recreated on re-import via the source flag, so
+  // this ID doesn't need to be stable across imports.
+  const activityKey  = randomFoundryId();
   fields.activities  = {
     [activityKey]: {
       _id:      activityKey,
@@ -314,4 +318,19 @@ function intFromMax(max: string): number {
 function arrayFromProps(props: string[] | undefined): string[] {
   if (!props) return [];
   return [...props];
+}
+
+
+/** Generate a 16-character alphanumeric ID matching Foundry's
+ *  `Document._id` contract (`/^[a-zA-Z0-9]{16}$/`). Used for
+ *  synthesised activity keys, which dnd5e v5.x validates against the
+ *  same regex via `AttackActivity`. Pure-JS so the translator stays
+ *  runtime-free. */
+function randomFoundryId(): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let id = "";
+  for (let i = 0; i < 16; i++) {
+    id += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  }
+  return id;
 }
