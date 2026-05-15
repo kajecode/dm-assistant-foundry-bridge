@@ -15,6 +15,27 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.5.2] — 2026-05-15
+
+### Fixed
+
+- **Per-type `Item.system` fields for non-weapon items.** v0.5.0 only populated weapon-specific `system` slots; spell / feat / equipment / consumable / tool / loot items were created with description + activation + uses only. dnd5e v5.x renders those as blank or broken rows without their type-specific slots. v0.5.2 adds minimal-but-valid shapes per type:
+  - **spell** — `level` (defaults to `0`/cantrip — the dnd5e Spells tab groups by level and breaks without it; the actions schema doesn't emit spell level yet), `school`, `properties`, `materials`, `preparation`, `target`, `range`.
+  - **feat** — `type.value: "monster"` (matches what the dnd5e system migration assigns NPC-attached feats; confirmed via the Elowen Tristane reference export), `properties`, `requirements`, `prerequisites`.
+  - **equipment** — physical-item common slots (`quantity`, `weight`, `price`, `rarity`, `identified`) + `armor` + `equipped`.
+  - **consumable** / **tool** / **loot** — physical-item common slots + their per-type `type` / `ability` / `proficient` slots.
+
+### Why
+
+Surfaced during the v0.5.0 Pi smoke. The companion dm-assistant v0.29.3 fix makes the LLM emit per-spell `type: "spell"` entries (previously a spellcaster's whole list collapsed into one feat); without this v0.5.2 shape fix, those spell items would land on the actor as unrenderable stubs. The two releases ship together.
+
+### Notes
+
+- Spell stubs are intentionally minimal (level-0 cantrip default, empty school). Full spell mechanics come from **#32** (compendium-source resolution — match the spell name against an installed SRD / DDB compendium and replace the stub with the real entry). Until #32 ships, the GM refines spell level/school, or drag-drops the spell from a compendium.
+- No API contract change; `min-api-contract-version` stays at `0.4.0`.
+- 7 new translator tests pin the per-type shapes. 213/213 total tests pass.
+
+
 ## [0.5.1] — 2026-05-14
 
 ### Fixed

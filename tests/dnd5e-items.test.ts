@@ -325,3 +325,97 @@ describe("forward-compat fields", () => {
     expect((out[0]!.system as Record<string, unknown>).compendium_source).toBeUndefined();
   });
 });
+
+
+// ── Per-type system blocks (v0.5.1 — non-weapon shapes) ────────────────────
+
+
+describe("per-type system fields (v0.5.1)", () => {
+  it("spell items carry level + school + spell-specific slots", () => {
+    const out = buildDnD5eItems(
+      _payloadWith([{ name: "Fire Bolt", type: "spell", description: "A mote of fire." }]),
+      { actorName: "Elowen" },
+    );
+    const sys = out[0]!.system;
+    // level is REQUIRED for the dnd5e Spells-tab grouping. Default 0
+    // (cantrip) since the actions schema doesn't emit spell level yet.
+    expect(sys.level).toBe(0);
+    expect(sys.school).toBe("");
+    expect(sys.materials).toBeDefined();
+    expect(sys.preparation).toBeDefined();
+    expect(sys.target).toBeDefined();
+    expect(sys.range).toBeDefined();
+    // Spell names stay bare (no actor-name suffix).
+    expect(out[0]!.name).toBe("Fire Bolt");
+  });
+
+  it("feat items carry a type.value so the sheet doesn't render blank", () => {
+    const out = buildDnD5eItems(
+      _payloadWith([{ name: "Pack Tactics", type: "feat" }]),
+      { actorName: "Wolf" },
+    );
+    const sys = out[0]!.system as { type: { value: string } };
+    expect(sys.type.value).toBe("monster");
+    // Feat names DO get the actor-name suffix.
+    expect(out[0]!.name).toBe("Pack Tactics (Wolf)");
+  });
+
+  it("equipment items carry physical-item slots + equipped flag", () => {
+    const out = buildDnD5eItems(
+      _payloadWith([{ name: "Studded Leather", type: "equipment" }]),
+      { actorName: "Guard" },
+    );
+    const sys = out[0]!.system as Record<string, unknown>;
+    expect(sys.quantity).toBe(1);
+    expect(sys.weight).toEqual({ value: 0, units: "lb" });
+    expect(sys.price).toEqual({ value: 0, denomination: "gp" });
+    expect(sys.equipped).toBe(false);
+    expect(sys.armor).toEqual({ value: null });
+    // Equipment names stay bare.
+    expect(out[0]!.name).toBe("Studded Leather");
+  });
+
+  it("consumable items carry physical-item slots + subtype", () => {
+    const out = buildDnD5eItems(
+      _payloadWith([{ name: "Potion of Healing", type: "consumable" }]),
+      { actorName: "X" },
+    );
+    const sys = out[0]!.system as Record<string, unknown>;
+    expect(sys.quantity).toBe(1);
+    expect((sys.type as { value: string; subtype: string }).subtype).toBe("");
+  });
+
+  it("tool items carry ability + proficient slots", () => {
+    const out = buildDnD5eItems(
+      _payloadWith([{ name: "Thieves' Tools", type: "tool" }]),
+      { actorName: "X" },
+    );
+    const sys = out[0]!.system as Record<string, unknown>;
+    expect(sys.ability).toBe("");
+    expect(sys.proficient).toBeNull();
+    expect(sys.quantity).toBe(1);
+  });
+
+  it("loot items carry physical-item slots", () => {
+    const out = buildDnD5eItems(
+      _payloadWith([{ name: "Gold Pouch", type: "loot" }]),
+      { actorName: "X" },
+    );
+    const sys = out[0]!.system as Record<string, unknown>;
+    expect(sys.quantity).toBe(1);
+    expect(sys.weight).toEqual({ value: 0, units: "lb" });
+    expect((sys.type as { value: string }).value).toBe("");
+  });
+
+  it("every item type still gets the common description block", () => {
+    const types = ["weapon", "spell", "feat", "equipment", "consumable", "tool", "loot"] as const;
+    for (const t of types) {
+      const out = buildDnD5eItems(
+        _payloadWith([{ name: `Test ${t}`, type: t, description: "**bold** text" }]),
+        { actorName: "X" },
+      );
+      const desc = out[0]!.system.description as { value: string };
+      expect(desc.value).toContain("<strong>bold</strong>");
+    }
+  });
+});

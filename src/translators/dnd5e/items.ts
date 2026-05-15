@@ -171,12 +171,128 @@ function buildSystem(item: ActionItemFromPayload): Record<string, unknown> {
     system.recharge = parseRecharge(item.recharge);
   }
 
-  // Per-type extensions.
-  if (item.type === "weapon") {
-    Object.assign(system, buildWeaponFields(item));
+  // Per-type extensions. Every dnd5e v5.x item type needs a few
+  // type-specific `system` slots or the sheet renders it as a blank
+  // / broken row. v0.5.0 only filled weapon; v0.5.1 fills the rest
+  // so spell / equipment / consumable / tool / loot items created
+  // from the actions sidecar render as proper items (#20 follow-up
+  // surfaced in the bridge v0.5.0 smoke).
+  switch (item.type) {
+    case "weapon":
+      Object.assign(system, buildWeaponFields(item));
+      break;
+    case "spell":
+      Object.assign(system, buildSpellFields());
+      break;
+    case "feat":
+      Object.assign(system, buildFeatFields());
+      break;
+    case "equipment":
+      Object.assign(system, buildEquipmentFields());
+      break;
+    case "consumable":
+      Object.assign(system, buildConsumableFields());
+      break;
+    case "tool":
+      Object.assign(system, buildToolFields());
+      break;
+    case "loot":
+      Object.assign(system, buildLootFields());
+      break;
   }
 
   return system;
+}
+
+
+// ─── Per-type system blocks (dnd5e v5.x minimal valid shapes) ─────────────
+
+
+/** Physical-item common slots shared by equipment / consumable /
+ *  tool / loot. Quantities + weight + price default to a single
+ *  weightless free item; the GM refines (or #32's compendium-source
+ *  resolution replaces the stub with a fully-statted entry). */
+function _physicalItemFields(): Record<string, unknown> {
+  return {
+    quantity:   1,
+    weight:     { value: 0, units: "lb" },
+    price:      { value: 0, denomination: "gp" },
+    rarity:     "",
+    identified: true,
+  };
+}
+
+
+/** Spell stub. dnd5e v5.x groups the Spells tab by `level`, so a
+ *  spell item MUST carry one — we default to 0 (cantrip) because the
+ *  actions schema (dm-assistant#485) doesn't yet emit spell level.
+ *  The GM corrects level/school, or #32 resolves the spell against
+ *  an installed SRD compendium and replaces the stub entirely. */
+function buildSpellFields(): Record<string, unknown> {
+  return {
+    level:  0,
+    school: "",
+    properties: [],
+    materials:  { value: "", consumed: false, cost: 0, supply: 0 },
+    preparation: { mode: "prepared", prepared: true },
+    target: {
+      affects:  { count: "", type: "", choice: false, special: "" },
+      template: {
+        count: "", contiguous: false, type: "", size: "",
+        width: "", height: "", units: "ft", stationary: false,
+      },
+    },
+    range:  { value: "", units: "self" },
+  };
+}
+
+
+/** Feat stub. dnd5e v5.x feats need a `type.value` — "monster"
+ *  matches what the system migration assigns to NPC-attached feats
+ *  (confirmed via the Solyrian/Elowen reference exports). */
+function buildFeatFields(): Record<string, unknown> {
+  return {
+    type:          { value: "monster", subtype: "" },
+    properties:    [],
+    requirements:  "",
+    prerequisites: { items: [], repeatable: false },
+  };
+}
+
+
+function buildEquipmentFields(): Record<string, unknown> {
+  return {
+    ..._physicalItemFields(),
+    type:     { value: "", baseItem: "" },
+    armor:    { value: null },
+    equipped: false,
+  };
+}
+
+
+function buildConsumableFields(): Record<string, unknown> {
+  return {
+    ..._physicalItemFields(),
+    type: { value: "", subtype: "" },
+  };
+}
+
+
+function buildToolFields(): Record<string, unknown> {
+  return {
+    ..._physicalItemFields(),
+    type:       { value: "", baseItem: "" },
+    ability:    "",
+    proficient: null,
+  };
+}
+
+
+function buildLootFields(): Record<string, unknown> {
+  return {
+    ..._physicalItemFields(),
+    type: { value: "" },
+  };
 }
 
 
