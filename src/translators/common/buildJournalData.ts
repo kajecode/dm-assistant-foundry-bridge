@@ -25,6 +25,7 @@
  */
 
 import type {
+  FoundryFactionResponse,
   FoundryJournalResponse,
   FoundryLocationResponse,
   FoundryShopResponse,
@@ -100,10 +101,27 @@ function renderMetadataHeader(payload: FoundryJournalResponse): string {
   const lines: string[] = [];
   if (payload.kind === "shop") {
     appendShopMetadata(payload, lines);
+  } else if (payload.kind === "faction") {
+    appendFactionMetadata(payload, lines);
   } else {
     appendLocationMetadata(payload, lines);
   }
   return lines.length > 0 ? `<p>${lines.join(" · ")}</p>\n` : "";
+}
+
+
+/** Faction metadata header (#506). Region badge + related-entity
+ *  cross-links (member NPCs, allied factions). Mirrors the location
+ *  appender's passthrough approach — a structured membership graph
+ *  is a deliberate follow-up, not v1. */
+function appendFactionMetadata(payload: FoundryFactionResponse, lines: string[]): void {
+  const fm = payload.front_matter;
+  if (typeof fm.region === "string") {
+    lines.push(`<strong>Region:</strong> ${escapeHtml(fm.region)}`);
+  }
+  appendRelatedRef(fm.related_npcs,     "Members",  "Actor",        lines);
+  appendRelatedRef(fm.related_factions, "Allied",   "JournalEntry", lines);
+  appendRelatedRef(fm.related_locations, "Holdings", "JournalEntry", lines);
 }
 
 

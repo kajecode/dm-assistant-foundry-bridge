@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { buildJournalBundle, MODULE_ID } from "../src/translators/common/buildJournalData.js";
 import type {
+  FoundryFactionResponse,
   FoundryLocationResponse,
   FoundryShopResponse,
 } from "../src/api/types.js";
@@ -205,5 +206,66 @@ describe("buildJournalBundle — location", () => {
   it("stamps location-journal drift-tracking flags", () => {
     const bundle = buildJournalBundle(LOCATION, opts);
     expect(bundle.flags[MODULE_ID].kind).toBe("location-journal");
+  });
+});
+
+
+// ── Faction (#506 / S10b) ───────────────────────────────────────────────────
+
+const FACTION: FoundryFactionResponse = {
+  slug:         "the-elder-eye-cult",
+  kind:         "faction",
+  name:         "The Elder Eye Cult",
+  display_name: "The Elder Eye Cult",
+  image_url:    "/api/faction-generate/image/the-elder-eye-cult?campaign_id=c",
+  thumb_url:    "/api/faction-generate/image/the-elder-eye-cult/thumb?campaign_id=c",
+  front_matter: {
+    region:            "Brawnshire",
+    related_npcs:      ["aldric-harwick", "mira-stoneveil"],
+    related_factions:  ["the-salt-guild"],
+    related_locations: ["the-salt-vault"],
+  },
+  sections: [
+    { name: "Charter",      body_md: "A subterranean order." },
+    { name: "Public Goals", body_md: "Restore the salt-guild monopoly." },
+  ],
+  dm_sections: [
+    { name: "Plot Hooks",        body_md: "- The quartermaster launders ash-iron." },
+    { name: "Suppressed Truths", body_md: "Something sealed behind the third door." },
+  ],
+  audit: {
+    source_path: "data/c/documents/dm/faction_the-elder-eye-cult.md",
+    modified_at: "2026-05-16T07:00:00+00:00",
+  },
+};
+
+describe("buildJournalBundle — faction (#506)", () => {
+  const opts = { campaignId: "c", contractVersion: "0.6.0" };
+
+  it("one page per public + DM section, in response order", () => {
+    const bundle = buildJournalBundle(FACTION, opts);
+    expect(bundle.pages.map((p) => p.name)).toEqual([
+      "Charter", "Public Goals", "Plot Hooks", "Suppressed Truths",
+    ]);
+  });
+
+  it("flag-kind discriminant is faction-journal", () => {
+    const bundle = buildJournalBundle(FACTION, opts);
+    expect(bundle.flags[MODULE_ID].kind).toBe("faction-journal");
+  });
+
+  it("metadata header surfaces region + member/allied/holding cross-links", () => {
+    const bundle = buildJournalBundle(FACTION, opts);
+    const page1  = bundle.pages[0]!.text.content;
+    expect(page1).toContain("<strong>Region:</strong> Brawnshire");
+    expect(page1).toContain("Actor.aldric-harwick");        // members
+    expect(page1).toContain("JournalEntry.the-salt-guild"); // allied factions
+    expect(page1).toContain("JournalEntry.the-salt-vault"); // holdings
+  });
+
+  it("no region/refs → no metadata header paragraph", () => {
+    const bare: FoundryFactionResponse = { ...FACTION, front_matter: {} };
+    const bundle = buildJournalBundle(bare, opts);
+    expect(bundle.pages[0]!.text.content).not.toContain("<strong>Region:</strong>");
   });
 });

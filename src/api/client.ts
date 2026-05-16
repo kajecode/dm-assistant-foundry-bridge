@@ -27,6 +27,9 @@ import type {
   SavedObjectListResponse,
   SavedObjectSummary,
   FoundryObjectResponse,
+  FoundryFactionResponse,
+  SavedFactionListResponse,
+  SavedFactionSummary,
 } from "./types.js";
 
 /**
@@ -651,6 +654,95 @@ export async function listLocations(opts: ListLocationsOptions): Promise<SavedLo
       throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
     }
     const body = (await res.json()) as SavedLocationListResponse;
+    if (!Array.isArray(body.saved)) {
+      throw new ApiError("Response missing 'saved' array", { kind: "shape", url });
+    }
+    return body.saved;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+// ── Faction endpoints (#506 / S10b — dm-assistant contract 0.6.0+) ──────────
+
+
+export interface FactionFetchOptions extends ClientOptions {
+  campaignId: string;
+  slug:       string;
+}
+
+/** `GET /foundry/faction/{slug}` — Foundry-friendly faction payload
+ *  (contract 0.6.0+). The bridge turns this into a JournalEntry /
+ *  Campaign Codex `group`. */
+export async function fetchFaction(opts: FactionFetchOptions): Promise<FoundryFactionResponse> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty",    { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+  if (!opts.slug)       throw new ApiError("slug is empty",       { kind: "config" });
+
+  const url    = `${base}/foundry/faction/${encodeURIComponent(opts.slug)}`
+               + `?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 10000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
+    }
+    const body = (await res.json()) as FoundryFactionResponse;
+    if (typeof body.slug !== "string" || body.kind !== "faction") {
+      throw new ApiError("Response missing slug or wrong kind", { kind: "shape", url });
+    }
+    return body;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
+}
+
+export interface ListFactionsOptions extends ClientOptions {
+  campaignId: string;
+}
+
+/** Fetch the picker's Faction list from `/faction-generate/saved`
+ *  (pre-existing endpoint; NOT a `/foundry/*` route). */
+export async function listFactions(opts: ListFactionsOptions): Promise<SavedFactionSummary[]> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty",    { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+
+  const url    = `${base}/faction-generate/saved?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 5000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
+    }
+    const body = (await res.json()) as SavedFactionListResponse;
     if (!Array.isArray(body.saved)) {
       throw new ApiError("Response missing 'saved' array", { kind: "shape", url });
     }

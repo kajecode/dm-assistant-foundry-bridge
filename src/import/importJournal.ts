@@ -27,6 +27,7 @@ import type {
   JournalKind,
 } from "../api/types.js";
 import {
+  fetchFaction,
   fetchImageBytes,
   fetchLocation,
   fetchShop,
@@ -56,25 +57,22 @@ export interface ImportJournalResult {
 export async function importJournal(opts: ImportJournalOptions): Promise<ImportJournalResult> {
   log.info("importing", opts.kind, opts.slug);
 
-  // Per-kind fetch — both routes return the same response shape
-  // (FoundryJournalResponse = shop | location), the union resolves
-  // via `payload.kind`.
+  // Per-kind fetch — all routes return the same union shape
+  // (FoundryJournalResponse = shop | location | faction), resolved
+  // via `payload.kind` downstream.
+  const fetchArgs = {
+    baseUrl:    opts.baseUrl,
+    apiKey:     opts.apiKey,
+    timeoutMs:  opts.timeoutMs,
+    campaignId: opts.campaignId,
+    slug:       opts.slug,
+  };
   const payload: FoundryJournalResponse =
     opts.kind === "shop"
-      ? await fetchShop({
-          baseUrl:    opts.baseUrl,
-          apiKey:     opts.apiKey,
-          timeoutMs:  opts.timeoutMs,
-          campaignId: opts.campaignId,
-          slug:       opts.slug,
-        })
-      : await fetchLocation({
-          baseUrl:    opts.baseUrl,
-          apiKey:     opts.apiKey,
-          timeoutMs:  opts.timeoutMs,
-          campaignId: opts.campaignId,
-          slug:       opts.slug,
-        });
+      ? await fetchShop(fetchArgs)
+      : opts.kind === "faction"
+        ? await fetchFaction(fetchArgs)
+        : await fetchLocation(fetchArgs);
 
   const bundle = buildJournalBundle(payload, {
     campaignId:      opts.campaignId,
@@ -82,12 +80,13 @@ export async function importJournal(opts: ImportJournalOptions): Promise<ImportJ
   });
 
   // Hero image — per-kind field on the payload. Shops use
-  // `establishment_image_url`, locations use `map_image_url`.
-  // Both upload to the same Foundry Data/<prefix>/<kind>/ folder
-  // with the same FilePicker call; only the source URL differs.
-  const imageUrl = payload.kind === "shop"
-    ? payload.establishment_image_url
-    : payload.map_image_url;
+  // `establishment_image_url`, locations `map_image_url`, factions
+  // the neutral `image_url` (a sigil/banner). Same upload pipeline;
+  // only the source field differs.
+  const imageUrl =
+    payload.kind === "shop"     ? payload.establishment_image_url :
+    payload.kind === "faction"  ? payload.image_url :
+                                  payload.map_image_url;
 
   let imgPath: string | null = null;
   if (imageUrl) {

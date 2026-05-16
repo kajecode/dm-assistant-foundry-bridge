@@ -185,9 +185,22 @@ describe("importPicker — scoped body (#505)", () => {
   });
 
   it("KINDS covers every PickerKind with a label + empty message", () => {
-    for (const k of ["npc", "creature", "shop", "location", "object"] as const) {
+    for (const k of ["npc", "creature", "shop", "location", "object", "faction"] as const) {
       expect(KINDS[k].label).toBeTruthy();
       expect(KINDS[k].empty).toContain("dm-assistant");
     }
+  });
+
+  it("Journal scope includes faction (#506) alongside shop + location", () => {
+    const html = buildBody(
+      ["shop", "location", "faction"] as never,
+      new Map() as never,
+    );
+    expect(html).toContain('value="shop"');
+    expect(html).toContain('value="location"');
+    expect(html).toContain('value="faction"');
+    // First scoped kind (shop) is the default-checked toggle.
+    expect(html).toMatch(/value="shop"[^>]*checked/);
+    expect(html).not.toMatch(/value="faction"[^>]*checked/);
   });
 });

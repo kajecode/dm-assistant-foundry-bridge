@@ -15,10 +15,12 @@ import {
   fetchImageBytes,
   fetchNpc,
   fetchObject,
+  fetchFaction,
   joinApiPath,
   listCreatures,
   listNpcs,
   listObjects,
+  listFactions,
 } from "../src/api/client.js";
 
 describe("compareSemver", () => {
@@ -635,5 +637,98 @@ describe("joinApiPath", () => {
 
   it("trims trailing slashes off the base", () => {
     expect(joinApiPath("https://d.example/api//", "/api/x")).toBe("https://d.example/api/x");
+  });
+});
+
+describe("fetchFaction (#506 / S10b)", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ok = () =>
+    new Response(
+      JSON.stringify({
+        slug: "the-elder-eye-cult", kind: "faction",
+        name: "The Elder Eye Cult", display_name: "The Elder Eye Cult",
+        image_url: null, thumb_url: null, front_matter: {},
+        sections: [], dm_sections: [],
+        audit: { source_path: "p", modified_at: "t" },
+      }),
+      { status: 200 },
+    );
+
+  it("hits /foundry/faction/{slug} with role=dm, URL-encoded", async () => {
+    fetchSpy.mockResolvedValueOnce(ok());
+    const r = await fetchFaction({ baseUrl: "http://api/", campaignId: "a b", slug: "x/y" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/foundry/faction/x%2Fy?campaign_id=a%20b&role=dm",
+      expect.anything(),
+    );
+    expect(r.kind).toBe("faction");
+    expect(r.slug).toBe("the-elder-eye-cult");
+  });
+
+  it("throws kind=shape when kind isn't 'faction'", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ slug: "s", kind: "location" }), { status: 200 }),
+    );
+    await expect(
+      fetchFaction({ baseUrl: "http://x", campaignId: "c", slug: "s" }),
+    ).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("throws kind=http with status on non-2xx", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response("nope", { status: 404 }));
+    await expect(
+      fetchFaction({ baseUrl: "http://x", campaignId: "c", slug: "s" }),
+    ).rejects.toMatchObject({ kind: "http", status: 404 });
+  });
+
+  it("rejects kind=config on empty slug", async () => {
+    await expect(
+      fetchFaction({ baseUrl: "http://x", campaignId: "c", slug: "" }),
+    ).rejects.toMatchObject({ kind: "config" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("listFactions (#506)", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("hits /faction-generate/saved and returns the saved array", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          saved: [
+            { slug: "the-elder-eye-cult", name: "The Elder Eye Cult",
+              filename: "faction_the-elder-eye-cult.md", modified_at: "t",
+              has_image: true, thumb_url: "/t" },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const out = await listFactions({ baseUrl: "http://api/", campaignId: "c" });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.slug).toBe("the-elder-eye-cult");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/faction-generate/saved?campaign_id=c&role=dm",
+      expect.anything(),
+    );
+  });
+
+  it("throws kind=shape when 'saved' array is missing", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+    await expect(
+      listFactions({ baseUrl: "http://x", campaignId: "c" }),
+    ).rejects.toMatchObject({ kind: "shape" });
   });
 });

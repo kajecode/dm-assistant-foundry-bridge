@@ -50,6 +50,7 @@ export type FlagKind =
   | "creature-actor" | "creature-dm-notes"
   | "shop-journal"
   | "location-journal"
+  | "faction-journal"   // #506 / S10b — faction imported as a JournalEntry
   | "object-item";   // #504 — a registered object imported as a world Item
 
 /** Map a `(entityKind, role)` pair to the flag-kind discriminant.
@@ -65,7 +66,7 @@ export type FlagKind =
  *  Invalid combinations widen to FlagKind via the type assertion;
  *  the orchestrator never constructs the bad pairs. */
 export function flagKindFor(
-  entityKind: ActorKind | "shop" | "location",
+  entityKind: ActorKind | "shop" | "location" | "faction",
   role:       "actor" | "dm-notes" | "journal",
 ): FlagKind {
   return `${entityKind}-${role}` as FlagKind;

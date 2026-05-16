@@ -107,7 +107,7 @@ export type FoundryNpcResponse = FoundryActorResponse;
  *  Foundry `JournalEntry` (optionally a Campaign Codex sheet of
  *  the matching CC type). v0.3.0 ships shop + location; faction
  *  lands later. */
-export type JournalKind = "shop" | "location";
+export type JournalKind = "shop" | "location" | "faction";
 
 /** Item shape from `/shop-generate/saved` — mirrors the
  *  creature-summary shape; shops aren't tied to a single
@@ -156,6 +156,22 @@ export interface SavedLocationListResponse {
   saved: SavedLocationSummary[];
 }
 
+/** Item shape from `/faction-generate/saved` (#506). Same wire shape
+ *  as the other saved-* summaries — slug + name + thumb is all the
+ *  picker needs; the faction body comes from `/foundry/faction/{slug}`. */
+export interface SavedFactionSummary {
+  slug:        string;
+  name:        string;
+  filename:    string;
+  modified_at: string;
+  has_image:   boolean;
+  thumb_url:   string;
+}
+
+export interface SavedFactionListResponse {
+  saved: SavedFactionSummary[];
+}
+
 /** `GET /foundry/shop/{slug}` response. Mirrors `FoundryActorResponse`
  *  with shop-specific bits:
  *   - `kind` is always `"shop"`
@@ -202,8 +218,33 @@ export interface FoundryLocationResponse {
   };
 }
 
-/** Union for code that handles both kinds via a single import flow. */
-export type FoundryJournalResponse = FoundryShopResponse | FoundryLocationResponse;
+/** `GET /foundry/faction/{slug}` response (API contract 0.6.0+,
+ *  #506 / S10b). Journal-flavoured like shop/location; faction's
+ *  headline image is a sigil/banner so it uses the **neutral**
+ *  `image_url`/`thumb_url` (not `map_*` nor `establishment_*`). The
+ *  bridge turns it into a JournalEntry / Campaign Codex `group`. */
+export interface FoundryFactionResponse {
+  slug:           string;
+  kind:           "faction";
+  name:           string;
+  display_name:   string;
+  image_url:      string | null;
+  thumb_url:      string | null;
+  front_matter:   Record<string, unknown>;
+  sections:       FoundrySection[];
+  dm_sections:    FoundrySection[];
+  audit: {
+    source_path: string;
+    modified_at: string;
+  };
+}
+
+/** Union for code that handles all journal kinds via a single
+ *  import flow. */
+export type FoundryJournalResponse =
+  | FoundryShopResponse
+  | FoundryLocationResponse
+  | FoundryFactionResponse;
 
 /** `GET /foundry/object/{slug}` response (API contract 0.5.0+,
  *  dm-assistant#502 v2a). The DM-authored Objects-Library object —

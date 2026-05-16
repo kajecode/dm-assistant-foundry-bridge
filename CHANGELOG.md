@@ -15,6 +15,25 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.10.0] — 2026-05-16
+
+### Added
+
+- **Faction import** (dm-assistant#506 / S10b — completes the issue end to end; the v3 item the #450 epic never built). Factions now import as JournalEntries through the same lifecycle as shops/locations:
+  - New `fetchFaction()` (`GET /foundry/faction/{slug}`, contract 0.6.0+) + `listFactions()` (`/faction-generate/saved`) + `SavedFactionSummary` / `FoundryFactionResponse` types.
+  - `importJournal` gains a faction branch — hero image comes from the neutral `image_url` (a sigil/banner, not `map_*`/`establishment_*`); lands in the existing `<prefix> — Factions` folder; drift policy holds (dm-assistant-wins, idempotent on `{slug,campaign_id,kind:"faction-journal"}`).
+  - `buildJournalData` gains a faction metadata header — region badge + member/allied-faction/holding cross-links (`related_npcs`/`related_factions`/`related_locations` passthrough, same approach as location). DM/public page split is server-decided via `_FACTION_DM_SECTION_HEADINGS` (#293) — no bridge-side heading allowlist.
+  - The **Journal-tab scoped picker** (#505) now offers **Faction** alongside Shop + Location.
+
+### ⚠️ Compatibility — breaking for older dm-assistant
+
+- **`min-api-contract-version` bumped `0.5.0` → `0.6.0`.** The `/foundry/faction/{slug}` endpoint ships in dm-assistant **v0.32.0**. Unlike the v0.9.0 spellcasting work (which degrades gracefully), faction import has **no fallback** — it requires the endpoint. Against an older dm-assistant the status indicator goes red and import is disabled until the operator upgrades. Upgrade dm-assistant to ≥ v0.32.0 before installing this release.
+
+### Internal
+
+- `JournalKind` + `FoundryJournalResponse` widened to include faction; `FlagKind` gains `"faction-journal"`; `flagKindFor` accepts `"faction"`. 11 new tests (fetchFaction/listFactions, faction journal bundle + metadata, faction in the Journal scope). 275/275 pass; typecheck + lint clean.
+
+
 ## [0.9.0] — 2026-05-16
 
 ### Added
