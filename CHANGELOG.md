@@ -15,6 +15,30 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.8.0] — 2026-05-16
+
+### Added
+
+- **Objects are first-class Foundry Items + standalone import** (dm-assistant#504). A registered dm-a Objects-Library object now becomes a real world `Item` document (Items sidebar tab), not just an item embedded on a wielding NPC.
+  - New **`listObjects()`** client (`/object-generate/saved`) + `SavedObjectSummary` type, and **`importObject` / `persistObjectWorldItem`** — fetch `/foundry/object/{slug}`, build the Item via the shared builder, create-or-update a world `Item` in the `<prefix> — Items` folder. Drift policy: dm-assistant wins; idempotent on `{slug, campaign_id, kind:"object-item"}` — one world doc per (object, campaign) however many NPCs reference it.
+  - The object→Item construction was **factored out of the resolver** (`translators/dnd5e/objectItem.ts`) so the embedded-resolution path and the standalone importer produce byte-identical data.
+  - An NPC that wields a registered object now gets the object **embedded on the Actor** (mechanics, unchanged from v0.7.0) **and** the browsable world `Item` refreshed alongside it. Best-effort: a world-copy failure logs and never loses the embedded item or fails the import.
+- **Scoped per-sidebar-tab import picker** (dm-assistant#505). The single Actors-tab-only "Import from dm-assistant" button is replaced by a scoped button on each relevant Foundry sidebar directory:
+  - **Actors** → NPC / Creature
+  - **Items** → Object
+  - **Journal** → Shop / Location
+  - One shared picker component parameterised by scope; the kind toggle, lists and dispatch all key off it. A pick outside the active scope is rejected (defence-in-depth). Lore / Faction Journal kinds are deferred (they need new `/foundry/lore|faction` endpoint families — tracked in #505).
+
+### Compatibility
+
+- **No API contract change.** `min-api-contract-version` stays `0.5.0`. #504/#505 use only endpoints that already shipped: `/foundry/object/{slug}` (contract 0.5.0, bridge v0.7.0) and the pre-existing `/object-generate/saved`. Requires dm-assistant ≥ v0.30.0 (unchanged from v0.7.0).
+
+### Internal
+
+- `FlagKind` gains `"object-item"`; `DnD5eItemData` flags gain optional `campaign_id` / `kind` (set only on standalone world Object Items, for `matchesSlug` identity — embedded items are unaffected). New `createOrUpdateObjectItem` + `ObjectItemImportData` in `foundry/documents.ts`. `resolveItemsAgainstCompendiums` now also refreshes the world Item for object-resolved stubs.
+- 17 new tests (importObject lifecycle/idempotency/coercion/image/error, listObjects, scoped picker body + scope-gated pick, resolver world-copy). 258/258 pass; typecheck + lint clean.
+
+
 ## [0.7.0] — 2026-05-15
 
 ### Added

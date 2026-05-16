@@ -440,14 +440,57 @@ describe("object_slug resolution (#502 v2a)", () => {
     expect(out[0]).toEqual(stubs[0]);
   });
 
-  it("does not make a library-folder copy for object-resolved items", async () => {
+  it("object-resolved items get a world Item (not a compendium copy) — #504", async () => {
     installGlobals("");
     stubObjectFetch(objectPayload());
-    await resolveItemsAgainstCompendiums(
+    const out = await resolveItemsAgainstCompendiums(
       [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })],
       OBJ_CTX,
     );
-    expect(itemsCreated).toHaveLength(0);   // compendium-only behaviour
+    // Still embedded on the actor (mechanics).
+    expect(out[0]!.flags[MODULE_ID].object_slug).toBe("thorncall-blade");
+    // AND a single standalone world Object Item — NOT the #32
+    // compendium `copyToItemsFolder` path (that keys resolved_from on
+    // a Compendium UUID; the object path uses the namespaced string +
+    // the world-doc identity flags).
+    expect(itemsCreated).toHaveLength(1);
+    const created = itemsCreated[0]! as {
+      folder?: string;
+      flags: Record<string, Record<string, unknown>>;
+    };
+    const f = created.flags[MODULE_ID]!;
+    expect(f.kind).toBe("object-item");
+    expect(f.campaign_id).toBe("c");
+    expect(f.object_slug).toBe("thorncall-blade");
+    expect(f.resolved_from).toBe("dm-assistant:object/thorncall-blade");
+    expect(String(created.folder)).toMatch(/^folder-/);
+  });
+
+  it("world Item copy failure is non-fatal — embed still proceeds", async () => {
+    installGlobals("");
+    stubObjectFetch(objectPayload());
+    // Make the world-Item create throw; the embedded item must
+    // still come back from the resolver.
+    vi.stubGlobal("Item", {
+      create: async () => { throw new Error("Item.create boom"); },
+    });
+    const out = await resolveItemsAgainstCompendiums(
+      [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })],
+      OBJ_CTX,
+    );
+    expect(out[0]!.name).toBe("Thorncall Blade");
+    expect(out[0]!.flags[MODULE_ID].object_slug).toBe("thorncall-blade");
+  });
+
+  it("no world Item when object resolution falls through (no objCtx)", async () => {
+    installGlobals("");
+    const spy = stubObjectFetch(objectPayload());
+    await resolveItemsAgainstCompendiums(
+      [stub("Thorncall Blade", { objectSlug: "thorncall-blade" })],
+      // no ctx → object path skipped entirely
+    );
+    expect(spy).not.toHaveBeenCalled();
+    expect(itemsCreated).toHaveLength(0);
   });
 });
 

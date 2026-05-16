@@ -12,7 +12,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { _internalForTests } from "../src/ui/importPicker.js";
 
-const { unwrapHtml, pickedSlug, pickedActor } = _internalForTests;
+const { unwrapHtml, pickedSlug, pickedActor, buildBody, KINDS } = _internalForTests;
 
 function buildPickerDom(): HTMLElement {
   // Mirrors the bridge#19 picker DOM: the unified radio group
@@ -101,32 +101,52 @@ describe("importPicker — pickedSlug (back-compat shim)", () => {
   });
 });
 
-describe("importPicker — pickedActor (unified)", () => {
+describe("importPicker — pickedActor (scoped, #505)", () => {
+  // The full kind set, mirroring the production scopes' union.
+  const ALL = ["npc", "creature", "shop", "location", "object"] as const;
+
   beforeEach(() => {
     document.body.innerHTML = "";
   });
 
   it("returns null when no row is checked", () => {
     const el = buildPickerDom();
-    expect(pickedActor(el)).toBeNull();
+    expect(pickedActor(el, ALL)).toBeNull();
   });
 
   it("returns {kind, slug} for an NPC selection", () => {
     const el = buildPickerDom();
     el.querySelector<HTMLInputElement>('input[value="npc:bravo"]')!.checked = true;
-    expect(pickedActor(el)).toEqual({ kind: "npc", slug: "bravo" });
+    expect(pickedActor(el, ALL)).toEqual({ kind: "npc", slug: "bravo" });
   });
 
   it("returns {kind, slug} for a Creature selection", () => {
     const el = buildPickerDom();
     el.querySelector<HTMLInputElement>('input[value="creature:ash-wraith"]')!.checked = true;
-    expect(pickedActor(el)).toEqual({ kind: "creature", slug: "ash-wraith" });
+    expect(pickedActor(el, ALL)).toEqual({ kind: "creature", slug: "ash-wraith" });
   });
 
-  it("rejects malformed radio values (kind not in the closed set)", () => {
-    // Defence-in-depth: if a future change accidentally added a
-    // `pc:foo` value before the picker grows PC support, pickedActor
-    // refuses to invent a kind it doesn't know.
+  it("rejects a pick outside the active scope", () => {
+    // #505: a stale/out-of-scope radio value (e.g. a creature row in
+    // a Journal-scoped picker) must not dispatch. Here the DOM has an
+    // npc row checked but the scope is Journal-only.
+    const el = buildPickerDom();
+    el.querySelector<HTMLInputElement>('input[value="npc:bravo"]')!.checked = true;
+    expect(pickedActor(el, ["shop", "location"])).toBeNull();
+  });
+
+  it("accepts an object pick when object is in scope", () => {
+    const el = buildPickerDom();
+    const objRow = document.createElement("input");
+    objRow.type    = "radio";
+    objRow.name    = "dab-actor-pick";
+    objRow.value   = "object:thorncall-blade";
+    objRow.checked = true;
+    el.appendChild(objRow);
+    expect(pickedActor(el, ["object"])).toEqual({ kind: "object", slug: "thorncall-blade" });
+  });
+
+  it("rejects malformed radio values (kind not known)", () => {
     const el = buildPickerDom();
     const malformed = document.createElement("input");
     malformed.type    = "radio";
@@ -134,6 +154,40 @@ describe("importPicker — pickedActor (unified)", () => {
     malformed.value   = "pc:wizard";
     malformed.checked = true;
     el.appendChild(malformed);
-    expect(pickedActor(el)).toBeNull();
+    expect(pickedActor(el, ALL)).toBeNull();
+  });
+});
+
+describe("importPicker — scoped body (#505)", () => {
+  it("renders only the scoped kinds' toggles + lists", () => {
+    const rows = new Map<string, Array<{ slug: string; name: string; modified_at: string }>>([
+      ["object", [{ slug: "thorncall-blade", name: "Thorncall Blade", modified_at: "t" }]],
+    ]);
+    const html = buildBody(["object"] as never, rows as never);
+    expect(html).toContain('value="object"');
+    expect(html).toContain("Thorncall Blade");
+    // No Actor/Journal kinds leak into an Items-scoped picker.
+    expect(html).not.toContain('value="npc"');
+    expect(html).not.toContain('value="shop"');
+    expect(html).not.toContain('value="location"');
+    expect(html).not.toContain('value="creature"');
+  });
+
+  it("first scoped kind is the default-checked toggle + active list", () => {
+    const html = buildBody(
+      ["shop", "location"] as never,
+      new Map() as never,
+    );
+    // First toggle (shop) checked; container active-kind = shop.
+    expect(html).toMatch(/value="shop"[^>]*checked/);
+    expect(html).not.toMatch(/value="location"[^>]*checked/);
+    expect(html).toContain('data-active-kind="shop"');
+  });
+
+  it("KINDS covers every PickerKind with a label + empty message", () => {
+    for (const k of ["npc", "creature", "shop", "location", "object"] as const) {
+      expect(KINDS[k].label).toBeTruthy();
+      expect(KINDS[k].empty).toContain("dm-assistant");
+    }
   });
 });

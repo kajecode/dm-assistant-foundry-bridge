@@ -82,6 +82,13 @@ export interface DnD5eItemData {
        *  as the world-Items-folder copy's idempotency key (compendium
        *  path only). Absent on unresolved stubs. */
       resolved_from?: string;
+      /** #504 — set ONLY when this is a standalone **world** Object
+       *  Item (the `import/importObject.ts` path), so `matchesSlug`
+       *  in `foundry/documents.ts` can find-or-update it like an
+       *  Actor/Journal. Embedded actor-items don't set these (they're
+       *  identified for drop-and-replace by `source` instead). */
+      campaign_id?: string;
+      kind?:        string;       // FlagKind, e.g. "object-item"
     };
   };
 }

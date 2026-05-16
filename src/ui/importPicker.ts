@@ -1,13 +1,20 @@
 /**
- * Import picker — Foundry v13 ApplicationV2 dialog listing the NPCs
- * in the configured dm-assistant campaign. DM picks one, clicks
- * Import, the orchestrator runs.
+ * Import picker — Foundry v13 ApplicationV2 dialog (#11).
  *
- * Ports from the deprecated v1 `Dialog` class to
- * `foundry.applications.api.DialogV2` (#11). Resolves via the
- * `foundry.applications.api` namespace the same way KeyboardManager
- * and FilePicker do — v13's deprecation warning was the last
- * console-noise item from the v0.1.0 smoke.
+ * #505: the picker is now **scoped**. Each Foundry sidebar tab mounts
+ * its own "Import from dm-assistant" button that opens the picker
+ * filtered to only the kinds that land in that tab:
+ *
+ *   Actors  → npc, creature        (→ Actor docs, `importActor`)
+ *   Items   → object               (→ world Item,  `importObject`)
+ *   Journal → shop, location       (→ JournalEntry, `importJournal`)
+ *
+ * (Lore + Faction Journal kinds are deferred — they need new
+ * `/foundry/lore|faction` endpoint families; see #505 Out of Scope.)
+ *
+ * One shared component parameterised by the kind list — no per-tab
+ * duplication. The kind toggle / lists / dispatch all key off the
+ * passed scope.
  */
 
 import type {
@@ -16,32 +23,78 @@ import type {
   SavedCreatureSummary,
   SavedLocationSummary,
   SavedNpcSummary,
+  SavedObjectSummary,
   SavedShopSummary,
 } from "../api/types.js";
 import {
   listCreatures,
   listLocations,
   listNpcs,
+  listObjects,
   listShops,
+  type ClientOptions,
 } from "../api/client.js";
 import { importActor } from "../import/importActor.js";
 import { importJournal } from "../import/importJournal.js";
+import { importObject } from "../import/importObject.js";
 import { getSetting } from "../settings/register.js";
 import { SETTING } from "../settings/keys.js";
 import { log } from "../lib/log.js";
 
-/** Anything the picker shows under a radio. Unifies NPC / Creature /
- *  Shop / Location summaries. */
+/** Every kind the picker can import. `object` (#504) routes to a
+ *  world Item; the rest are the pre-existing Actor/Journal kinds. */
+export type PickerKind = ActorKind | JournalKind | "object";
+
+/** A tab scope = the ordered kinds that tab's button offers. */
+export type PickerScope = readonly PickerKind[];
+
+export const SCOPE_ACTORS:  PickerScope = ["npc", "creature"];
+export const SCOPE_ITEMS:   PickerScope = ["object"];
+export const SCOPE_JOURNAL: PickerScope = ["shop", "location"];
+
+/** Anything the picker shows under a radio. */
 interface PickerRow {
   slug:        string;
   name:        string;
-  region?:     string;        // present for NPCs / shops with region front-matter
+  region?:     string;
   modified_at: string;
 }
 
-/** All four kinds the picker can import. Drives the kind toggle, the
- *  list dispatch, and the orchestrator routing. */
-type PickerKind = ActorKind | JournalKind;
+interface KindConfig {
+  label:    string;
+  empty:    string;
+  list:     (opts: ListOpts) => Promise<PickerRow[]>;
+}
+
+type ListOpts = ClientOptions & { campaignId: string };
+
+const KINDS: Record<PickerKind, KindConfig> = {
+  npc: {
+    label: "NPC",
+    empty: "No saved NPCs found for this campaign. Generate one in dm-assistant first.",
+    list:  async (o) => (await listNpcs(o)).map(npcToRow),
+  },
+  creature: {
+    label: "Creature",
+    empty: "No saved creatures found. Disseminate a bestiary entry in dm-assistant first.",
+    list:  async (o) => (await listCreatures(o)).map(creatureToRow),
+  },
+  shop: {
+    label: "Shop",
+    empty: "No saved shops found for this campaign. Generate one in dm-assistant first.",
+    list:  async (o) => (await listShops(o)).map(shopToRow),
+  },
+  location: {
+    label: "Location",
+    empty: "No saved locations found. Disseminate one in dm-assistant first.",
+    list:  async (o) => (await listLocations(o)).map(locationToRow),
+  },
+  object: {
+    label: "Object",
+    empty: "No saved objects found for this campaign. Generate or register one in dm-assistant first.",
+    list:  async (o) => (await listObjects(o)).map(objectToRow),
+  },
+};
 
 // ─── DialogV2 namespace resolver ─────────────────────────────────────────────
 
@@ -104,17 +157,17 @@ function escape(s: string): string {
 function npcToRow(n: SavedNpcSummary): PickerRow {
   return { slug: n.slug, name: n.name, region: n.region, modified_at: n.modified_at };
 }
-
 function creatureToRow(c: SavedCreatureSummary): PickerRow {
   return { slug: c.slug, name: c.name, modified_at: c.modified_at };
 }
-
 function shopToRow(s: SavedShopSummary): PickerRow {
   return { slug: s.slug, name: s.name, modified_at: s.modified_at };
 }
-
 function locationToRow(l: SavedLocationSummary): PickerRow {
   return { slug: l.slug, name: l.name, modified_at: l.modified_at };
+}
+function objectToRow(o: SavedObjectSummary): PickerRow {
+  return { slug: o.slug, name: o.name, modified_at: o.modified_at };
 }
 
 function rowHtml(row: PickerRow, kind: PickerKind): string {
@@ -141,61 +194,35 @@ function listHtml(rows: PickerRow[], kind: PickerKind, emptyMsg: string): string
   `;
 }
 
-function buildBody(
-  npcs:      PickerRow[],
-  creatures: PickerRow[],
-  shops:     PickerRow[],
-  locations: PickerRow[],
-): string {
-  // Kind toggle stays sticky at top; four lists are siblings — CSS
-  // shows only the active one. Default selection is NPC because it's
-  // the highest-volume kind in practice. Shops + Locations are
-  // journal-flavoured (#25 / #26 — bridge v0.4.0); NPCs + Creatures
-  // are actor-flavoured.
+/** Build the dialog body for the given (ordered) scope. Only the
+ *  scoped kinds get a toggle radio + list; the first kind is the
+ *  default selection. A single-kind scope (e.g. Items) still renders
+ *  the toggle for layout consistency but it's the only option. */
+function buildBody(scope: PickerScope, rows: Map<PickerKind, PickerRow[]>): string {
+  const toggles = scope.map((k, i) => `
+        <label style="cursor:pointer;">
+          <input type="radio" name="dab-kind" value="${k}" ${i === 0 ? "checked" : ""} />
+          ${KINDS[k].label}
+          <span style="opacity:0.7">(${(rows.get(k) ?? []).length})</span>
+        </label>`).join("");
+  const lists = scope.map((k) =>
+    listHtml(rows.get(k) ?? [], k, KINDS[k].empty)).join("");
   return `
     <div style="display:flex;flex-direction:column;gap:8px;max-height:480px;">
       <fieldset class="dab-kind-toggle"
                 style="border:0;padding:0;margin:0;display:flex;gap:16px;flex-wrap:wrap;">
         <legend style="margin-bottom:4px;font-weight:600;">Import</legend>
-        <label style="cursor:pointer;">
-          <input type="radio" name="dab-kind" value="npc" checked /> NPC
-          <span style="opacity:0.7">(${npcs.length})</span>
-        </label>
-        <label style="cursor:pointer;">
-          <input type="radio" name="dab-kind" value="creature" /> Creature
-          <span style="opacity:0.7">(${creatures.length})</span>
-        </label>
-        <label style="cursor:pointer;">
-          <input type="radio" name="dab-kind" value="shop" /> Shop
-          <span style="opacity:0.7">(${shops.length})</span>
-        </label>
-        <label style="cursor:pointer;">
-          <input type="radio" name="dab-kind" value="location" /> Location
-          <span style="opacity:0.7">(${locations.length})</span>
-        </label>
+        ${toggles}
       </fieldset>
       <input type="search" class="dab-actor-filter" placeholder="Filter by name…"
              style="padding:4px 8px;width:100%;" />
-      <div class="dab-list-container" data-active-kind="npc">
-        ${listHtml(npcs,      "npc",
-            "No saved NPCs found for this campaign. Generate one in dm-assistant first.")}
-        ${listHtml(creatures, "creature",
-            "No saved creatures found for this campaign. Disseminate a bestiary entry in dm-assistant first.")}
-        ${listHtml(shops,     "shop",
-            "No saved shops found for this campaign. Generate one in dm-assistant first.")}
-        ${listHtml(locations, "location",
-            "No saved locations found for this campaign. Disseminate one in dm-assistant first.")}
+      <div class="dab-list-container" data-active-kind="${scope[0]}">
+        ${lists}
       </div>
     </div>
   `;
 }
 
-/**
- * Best-effort DOM unwrap. DialogV2 hands callbacks a `dialog.element`
- * that's a raw HTMLElement — no jQuery wrapper. Helper kept around
- * (and accepting `unknown`) so future ports + tests can pass either
- * form without changing call sites.
- */
 function unwrapHtml(html: unknown): HTMLElement | null {
   if (html instanceof HTMLElement) return html;
   if (html && typeof html === "object" && "0" in html) {
@@ -219,7 +246,7 @@ function wireFilter(html: unknown): void {
   });
 }
 
-function wireKindToggle(html: unknown): void {
+function wireKindToggle(html: unknown, scope: PickerScope): void {
   const el = unwrapHtml(html);
   if (!el) return;
   const container = el.querySelector<HTMLElement>(".dab-list-container");
@@ -230,8 +257,7 @@ function wireKindToggle(html: unknown): void {
       node.style.display = node.dataset.kind === active ? "" : "none";
     });
   };
-  // Initial render — show NPC list, hide the others.
-  apply("npc");
+  apply(scope[0]!);
   el.querySelectorAll<HTMLInputElement>('input[name="dab-kind"]').forEach((radio) => {
     radio.addEventListener("change", () => {
       if (radio.checked) apply(radio.value as PickerKind);
@@ -239,37 +265,34 @@ function wireKindToggle(html: unknown): void {
   });
 }
 
-const _PICKER_KIND_SET: ReadonlySet<PickerKind> = new Set<PickerKind>([
-  "npc", "creature", "shop", "location",
-]);
-
-/** Returns the picked (kind, slug) pair, or null if nothing is
- *  selected. The radio input value is encoded as `"<kind>:<slug>"`
- *  so a single radio group can carry all four kinds. */
-function pickedActor(html: unknown): { kind: PickerKind; slug: string } | null {
+/** Returns the picked (kind, slug) pair, or null. The radio value is
+ *  `"<kind>:<slug>"`. Validated against the active scope so a stale
+ *  DOM value can't dispatch an out-of-scope import. */
+function pickedActor(html: unknown, scope: PickerScope): { kind: PickerKind; slug: string } | null {
   const el = unwrapHtml(html);
   if (!el) return null;
   const checked = el.querySelector<HTMLInputElement>('input[name="dab-actor-pick"]:checked');
   if (!checked) return null;
   const [rawKind, slug] = checked.value.split(":");
   if (!slug) return null;
-  if (!_PICKER_KIND_SET.has(rawKind as PickerKind)) return null;
+  if (!scope.includes(rawKind as PickerKind)) return null;
   return { kind: rawKind as PickerKind, slug };
 }
 
-/** @deprecated kept for the test-only re-export; new callers use `pickedActor`. */
+/** @deprecated test-only re-export; uses the full kind set. */
 function pickedSlug(html: unknown): string | null {
-  const pick = pickedActor(html);
-  return pick?.slug ?? null;
+  const ALL: PickerScope = ["npc", "creature", "shop", "location", "object"];
+  return pickedActor(html, ALL)?.slug ?? null;
 }
 
 // ─── Entry point ────────────────────────────────────────────────────────────
 
 /**
- * Open the picker. Fetches the NPC list first so any HTTP error is
- * surfaced before the dialog opens (avoids an empty modal flickering).
+ * Open the picker scoped to `scope` (the kinds that tab imports).
+ * Fetches the scoped lists concurrently; a per-list failure still
+ * opens the dialog so the DM can import what's available.
  */
-export async function openImportPicker(): Promise<void> {
+export async function openImportPicker(scope: PickerScope = SCOPE_ACTORS): Promise<void> {
   const baseUrl    = getSetting<string>(SETTING.baseUrl);
   const apiKey     = getSetting<string>(SETTING.apiKey);
   const campaignId = getSetting<string>(SETTING.campaignId);
@@ -284,60 +307,26 @@ export async function openImportPicker(): Promise<void> {
     return;
   }
 
-  // Fetch all four lists concurrently — picker shows them via the
-  // kind toggle. If a list endpoint fails we still want the others
-  // to populate, so we use `Promise.allSettled`.
-  const opts = { baseUrl, apiKey: apiKey || undefined, campaignId };
-  const [npcsRes, creaturesRes, shopsRes, locationsRes] = await Promise.allSettled([
-    listNpcs(opts),
-    listCreatures(opts),
-    listShops(opts),
-    listLocations(opts),
-  ]);
+  const opts: ListOpts = { baseUrl, apiKey: apiKey || undefined, campaignId };
+  const settled = await Promise.allSettled(scope.map((k) => KINDS[k].list(opts)));
 
-  let npcs:      PickerRow[] = [];
-  let creatures: PickerRow[] = [];
-  let shops:     PickerRow[] = [];
-  let locations: PickerRow[] = [];
+  const rows = new Map<PickerKind, PickerRow[]>();
+  let anyOk = false;
+  scope.forEach((k, i) => {
+    const r = settled[i]!;
+    if (r.status === "fulfilled") {
+      rows.set(k, r.value);
+      anyOk = true;
+    } else {
+      rows.set(k, []);
+      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      log.warn(`list ${k} failed`, msg);
+      ui.notifications.warn(`Couldn't list ${KINDS[k].label}s: ${msg}`);
+    }
+  });
 
-  if (npcsRes.status === "fulfilled") {
-    npcs = npcsRes.value.map(npcToRow);
-  } else {
-    const msg = npcsRes.reason instanceof Error ? npcsRes.reason.message : String(npcsRes.reason);
-    log.warn("listNpcs failed", msg);
-    ui.notifications.warn(`Couldn't list NPCs: ${msg}`);
-  }
-  if (creaturesRes.status === "fulfilled") {
-    creatures = creaturesRes.value.map(creatureToRow);
-  } else {
-    const msg = creaturesRes.reason instanceof Error ? creaturesRes.reason.message : String(creaturesRes.reason);
-    log.warn("listCreatures failed", msg);
-    ui.notifications.warn(`Couldn't list Creatures: ${msg}`);
-  }
-  if (shopsRes.status === "fulfilled") {
-    shops = shopsRes.value.map(shopToRow);
-  } else {
-    const msg = shopsRes.reason instanceof Error ? shopsRes.reason.message : String(shopsRes.reason);
-    log.warn("listShops failed", msg);
-    ui.notifications.warn(`Couldn't list Shops: ${msg}`);
-  }
-  if (locationsRes.status === "fulfilled") {
-    locations = locationsRes.value.map(locationToRow);
-  } else {
-    const msg = locationsRes.reason instanceof Error ? locationsRes.reason.message : String(locationsRes.reason);
-    log.warn("listLocations failed", msg);
-    ui.notifications.warn(`Couldn't list Locations: ${msg}`);
-  }
-
-  // All four failed → bail with an error instead of opening an
-  // empty dialog. Partial failure still opens the picker so the
-  // DM can import what's available.
-  const allRejected =
-    npcsRes.status      === "rejected" &&
-    creaturesRes.status === "rejected" &&
-    shopsRes.status     === "rejected" &&
-    locationsRes.status === "rejected";
-  if (npcs.length === 0 && creatures.length === 0 && shops.length === 0 && locations.length === 0 && allRejected) {
+  const total = scope.reduce((n, k) => n + (rows.get(k) ?? []).length, 0);
+  if (total === 0 && !anyOk) {
     ui.notifications.error("Couldn't reach dm-assistant — check the base URL + connection.");
     return;
   }
@@ -345,59 +334,45 @@ export async function openImportPicker(): Promise<void> {
   const DialogV2 = resolveDialogV2();
   const dialog = new DialogV2({
     window: { title: "Import from dm-assistant" },
-    content: buildBody(npcs, creatures, shops, locations),
+    content: buildBody(scope, rows),
     buttons: [
-      {
-        action: "cancel",
-        label:  "Cancel",
-        icon:   "fas fa-times",
-      },
+      { action: "cancel", label: "Cancel", icon: "fas fa-times" },
       {
         action:  "import",
         label:   "Import",
         icon:    "fas fa-download",
         default: true,
         callback: async (_event, _button, dlg) => {
-          const pick = pickedActor(dlg.element);
+          const pick = pickedActor(dlg.element, scope);
           if (!pick) {
             ui.notifications.warn("Pick an entity first.");
             return;
           }
           try {
             ui.notifications.info(`Importing ${pick.kind} ${pick.slug}…`);
-            // Actor-flavoured kinds (npc + creature) go through
-            // importActor; journal-flavoured kinds (shop + location)
-            // go through importJournal. Each writes a different
-            // Foundry document type with different drift-flag kinds.
             if (pick.kind === "npc" || pick.kind === "creature") {
               const r = await importActor({
-                baseUrl,
-                apiKey: apiKey || undefined,
-                campaignId,
-                slug:        pick.slug,
-                kind:        pick.kind,
-                dataPrefix,
+                baseUrl, apiKey: apiKey || undefined, campaignId,
+                slug: pick.slug, kind: pick.kind, dataPrefix,
               });
               const journalMsg =
                 r.journal === "created" ? " + DM-notes journal created" :
                 r.journal === "updated" ? " + DM-notes journal updated" :
-                r.journal === "deleted" ? " (stale DM-notes journal removed)" :
-                "";
+                r.journal === "deleted" ? " (stale DM-notes journal removed)" : "";
               ui.notifications.info(
                 `Imported ${r.kind} ${r.slug} — actor ${r.actor}${journalMsg}.`,
               );
+            } else if (pick.kind === "object") {
+              const r = await importObject({
+                baseUrl, apiKey: apiKey || undefined, campaignId, slug: pick.slug,
+              });
+              ui.notifications.info(`Imported object ${r.slug} — Item ${r.item}.`);
             } else {
               const r = await importJournal({
-                baseUrl,
-                apiKey: apiKey || undefined,
-                campaignId,
-                slug:       pick.slug,
-                kind:       pick.kind,
-                dataPrefix,
+                baseUrl, apiKey: apiKey || undefined, campaignId,
+                slug: pick.slug, kind: pick.kind, dataPrefix,
               });
-              ui.notifications.info(
-                `Imported ${r.kind} ${r.slug} — journal ${r.journal}.`,
-              );
+              ui.notifications.info(`Imported ${r.kind} ${r.slug} — journal ${r.journal}.`);
             }
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
@@ -410,20 +385,16 @@ export async function openImportPicker(): Promise<void> {
   });
 
   await dialog.render({ force: true });
-  // DialogV2 doesn't expose a per-instance `render` hook callback
-  // like v1 did, so wire the listeners after render() resolves —
-  // `dialog.element` is the live DOM at that point.
   wireFilter(dialog.element);
-  wireKindToggle(dialog.element);
+  wireKindToggle(dialog.element, scope);
 }
 
-// Test-only exports — keep the runtime API surface (`openImportPicker`)
-// public-only; expose the DOM helpers so unit tests can pin the
-// HTMLElement / jQuery-wrapper unwrap behaviour without spinning up
-// Foundry.
+// Test-only exports.
 export const _internalForTests = {
   unwrapHtml,
   pickedSlug,
   pickedActor,
   resolveDialogV2,
+  buildBody,
+  KINDS,
 };

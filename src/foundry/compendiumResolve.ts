@@ -51,9 +51,10 @@ import {
   type DnD5eItemData,
 } from "../translators/dnd5e/items.js";
 import type { ActionItemType } from "../translators/dnd5e/types.js";
-import { fetchObject, joinApiPath } from "../api/client.js";
+import { buildObjectItemData } from "../translators/dnd5e/objectItem.js";
+import { persistObjectWorldItem } from "../import/importObject.js";
+import { fetchObject } from "../api/client.js";
 import type { FoundryObjectResponse } from "../api/types.js";
-import { renderMarkdown } from "../lib/markdown.js";
 import { log } from "../lib/log.js";
 
 
@@ -180,6 +181,24 @@ export async function resolveItemsAgainstCompendiums(
             );
           }
         }
+        // Object-resolved (#504): also refresh the standalone world
+        // `Item` so the DM gets a browsable Items-tab copy alongside
+        // the embedded actor item. Best-effort — a failure here must
+        // not lose the (already-pushed) embedded item.
+        if (resolved.objectWorldCopy && objCtx) {
+          try {
+            await persistObjectWorldItem(
+              resolved.objectWorldCopy,
+              objCtx.baseUrl,
+              objCtx.campaignId,
+            );
+          } catch (e) {
+            log.warn(
+              `compendium-resolve: world Item copy for object ` +
+              `"${resolved.objectWorldCopy.slug}" failed (non-fatal)`, e,
+            );
+          }
+        }
       } else {
         out.push(stub);
       }
@@ -239,6 +258,11 @@ interface ResolvedItem {
     raw:  Record<string, unknown>;
     uuid: string;
   };
+  /** Present for object-resolved items (#504) — the dm-a payload, so
+   *  the loop also refreshes the standalone world `Item` (the Items
+   *  sidebar copy) alongside embedding it on the actor. Best-effort:
+   *  a failure logs + the embed still proceeds. */
+  objectWorldCopy?: FoundryObjectResponse;
 }
 
 async function resolveOne(
@@ -263,6 +287,7 @@ async function resolveOne(
         slug:       flag.object_slug,
       });
       const built = buildFromObject(obj, stub, ctx.baseUrl);
+      built.objectWorldCopy = obj;   // also refresh the world Item (#504)
       log.info(
         `compendium-resolve: "${flag.origin_name ?? stub.name}" → ` +
         `dm-a object "${obj.slug}" (${obj.item_type})`,
@@ -399,22 +424,12 @@ function buildResolved(
 
 // ─── Object-Library resolution (#502 v2a — narrative round-trip) ───────────
 
-const _OBJECT_ALLOWED: ReadonlySet<ActionItemType> = new Set<ActionItemType>([
-  "weapon", "feat", "spell", "equipment", "consumable", "tool", "loot",
-]);
-
 /**
- * Build a persist-ready `DnD5eItemData` from a dm-a Objects-Library
- * payload. v2a is narrative-only: authoritative authored name + DM
- * lore (rendered to HTML) + image; a clean stub `system` (no
- * mechanics — the DM-authored object is identity-authoritative and
- * mechanics are deliberately deferred to v2b, mirroring how v0.5.2
- * spell stubs already work).
- *
- * The bridge drift marker (`source: "dm-assistant"`) is preserved so
- * re-import drop-and-replace still cleans the item. `resolved_from`
- * carries a namespaced `dm-assistant:object/<slug>` provenance string
- * (NOT a Foundry UUID — never fed to `fromUuid`; no compendium copy).
+ * Thin wrapper over the shared `buildObjectItemData` (#504 extracted
+ * it so the standalone importer produces identical data). Derives the
+ * item identity from the matched stub: keep the stub's bridge slug +
+ * its `origin_name` name-search anchor, fall back to the stub's img
+ * when the object has none.
  */
 function buildFromObject(
   obj:     FoundryObjectResponse,
@@ -422,40 +437,11 @@ function buildFromObject(
   baseUrl: string,
 ): ResolvedItem {
   const flag = stub.flags[MODULE_ID];
-
-  const rawType = (obj.item_type ?? "").trim().toLowerCase() as ActionItemType;
-  const type: ActionItemType = _OBJECT_ALLOWED.has(rawType) ? rawType : "loot";
-
-  const img = obj.image_url
-    ? joinApiPath(baseUrl, obj.image_url)
-    : stub.img;
-
-  const data: DnD5eItemData = {
-    // The authored object's real campaign name is authoritative —
-    // NOT the `(actor)`-decorated stub display name (that decoration
-    // is for natural attacks / SRD gear, not a named unique object).
-    name: obj.name,
-    type,
-    img,
-    system: {
-      description: {
-        value:        renderMarkdown(obj.description_md ?? ""),
-        chat:         "",
-        unidentified: "",
-      },
-    },
-    flags: {
-      [MODULE_ID]: {
-        slug:              flag.slug,
-        source:            ITEM_SOURCE_MARKER,
-        origin_name:       flag.origin_name ?? stub.name,
-        compendium_source: flag.compendium_source ?? null,
-        object_slug:       obj.slug,
-        resolved_from:     `dm-assistant:object/${obj.slug}`,
-      },
-    } as DnD5eItemData["flags"],
-  };
-
+  const data = buildObjectItemData(obj, baseUrl, {
+    slug:        flag.slug,
+    originName:  flag.origin_name ?? stub.name,
+    fallbackImg: stub.img,
+  });
   return { data };
 }
 

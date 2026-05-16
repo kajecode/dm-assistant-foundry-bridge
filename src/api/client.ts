@@ -24,6 +24,8 @@ import type {
   SavedNpcSummary,
   SavedShopListResponse,
   SavedShopSummary,
+  SavedObjectListResponse,
+  SavedObjectSummary,
   FoundryObjectResponse,
 } from "./types.js";
 
@@ -345,6 +347,51 @@ export function joinApiPath(baseUrl: string, path: string): string {
     p = p.slice("/api".length);
   }
   return `${base}${p}`;
+}
+
+export interface ListObjectsOptions extends ClientOptions {
+  campaignId: string;
+}
+
+/**
+ * Fetch the picker's Object list from `/object-generate/saved`
+ * (#504). Pre-existing endpoint — same wire shape as
+ * `/shop-generate/saved` etc. NOT a `/foundry/*` route; the object
+ * body for an actual import comes from `fetchObject`.
+ */
+export async function listObjects(opts: ListObjectsOptions): Promise<SavedObjectSummary[]> {
+  const base = normaliseBase(opts.baseUrl);
+  if (!base)            throw new ApiError("baseUrl is empty",    { kind: "config" });
+  if (!opts.campaignId) throw new ApiError("campaignId is empty", { kind: "config" });
+
+  const url    = `${base}/object-generate/saved?campaign_id=${encodeURIComponent(opts.campaignId)}&role=dm`;
+  const ctrl   = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 5000;
+  try {
+    const res = await withTimeout(
+      fetch(url, { headers: buildHeaders(opts.apiKey), signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    );
+    if (!res.ok) {
+      const auth = res.status === 401 ? await parseAuthError(res) : {};
+      throw new ApiError(`HTTP ${res.status}`, { kind: "http", status: res.status, url, ...auth });
+    }
+    const body = (await res.json()) as SavedObjectListResponse;
+    if (!Array.isArray(body.saved)) {
+      throw new ApiError("Response missing 'saved' array", { kind: "shape", url });
+    }
+    return body.saved;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new ApiError(`Timeout after ${timeoutMs}ms`, { kind: "timeout", url, cause: e });
+    }
+    throw new ApiError(
+      e instanceof Error ? e.message : "Unknown fetch error",
+      { kind: "network", url, cause: e },
+    );
+  }
 }
 
 /**

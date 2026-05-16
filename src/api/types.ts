@@ -126,6 +126,22 @@ export interface SavedShopListResponse {
   saved: SavedShopSummary[];
 }
 
+/** Item shape from `/object-generate/saved` (#504). Identical wire
+ *  shape to shop/location summaries — slug + name + thumb is all the
+ *  picker needs; the object body comes from `/foundry/object/{slug}`. */
+export interface SavedObjectSummary {
+  slug:        string;
+  name:        string;
+  filename:    string;
+  modified_at: string;
+  has_image:   boolean;
+  thumb_url:   string;
+}
+
+export interface SavedObjectListResponse {
+  saved: SavedObjectSummary[];
+}
+
 /** Item shape from `/location-generate/saved`. */
 export interface SavedLocationSummary {
   slug:        string;

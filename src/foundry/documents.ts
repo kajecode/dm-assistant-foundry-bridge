@@ -67,11 +67,23 @@ interface FoundryJournalClass {
   create:  (data: Record<string, unknown>) => Promise<FoundryJournalLike | null>;
 }
 
+/** Top-level (world) `Item` document — the standalone Object import
+ *  (#504). Distinct from the embedded actor-items handled by
+ *  `syncEmbeddedItems`; these live in the Items sidebar tab. Same
+ *  doc surface as Actor/Journal (id, uuid, getFlag, update). */
+type FoundryWorldItemLike = FoundryDocLike;
+
+interface FoundryItemClass {
+  create:  (data: Record<string, unknown>) => Promise<FoundryWorldItemLike | null>;
+}
+
 declare const Actor:        FoundryActorClass;
 declare const JournalEntry: FoundryJournalClass;
+declare const Item:         FoundryItemClass;
 declare const game: {
   actors:   { find: (cb: (d: FoundryActorLike) => boolean)       => FoundryActorLike | undefined };
   journal:  { find: (cb: (d: FoundryJournalLike) => boolean)    => FoundryJournalLike | undefined };
+  items:    { find: (cb: (d: FoundryWorldItemLike) => boolean)  => FoundryWorldItemLike | undefined };
 };
 
 export type PersistResult = "created" | "updated";
@@ -208,6 +220,41 @@ export async function createOrUpdateJournal(journal: JournalImportData): Promise
   }
   const created = await JournalEntry.create(journal as unknown as Record<string, unknown>);
   log.info("journal created", slug, created?.uuid);
+  return "created";
+}
+
+/** A standalone world Object Item (#504). The shared
+ *  `buildObjectItemData` output, plus the world-document identity
+ *  flags (`campaign_id`, `kind`) and a `folder`. */
+export type ObjectItemImportData = DnD5eItemData & { folder?: string };
+
+/**
+ * Create or update a standalone world `Item` from a registered
+ * dm-a object (#504). Drift policy mirrors Actor/Journal: find the
+ * existing Item by `flags.dm-assistant-bridge.{slug, campaign_id,
+ * kind}` and overwrite, else create. Idempotent across re-imports
+ * and across however many NPCs reference the same object — one
+ * world doc per (object slug, campaign).
+ *
+ * Unlike Actors/Journals there are no embedded child documents to
+ * sync (the lore lives in `system.description`), so this is a plain
+ * update-or-create.
+ */
+export async function createOrUpdateObjectItem(
+  item: ObjectItemImportData,
+): Promise<PersistResult> {
+  const f          = item.flags[MODULE_ID];
+  const slug       = f.slug;
+  const campaignId = f.campaign_id ?? "";
+  const flagKind   = (f.kind ?? "object-item") as FlagKind;
+  const existing   = game.items.find((d) => matchesSlug(d, slug, campaignId, flagKind));
+  if (existing) {
+    await existing.update(item as unknown as Record<string, unknown>);
+    log.info("object item updated", slug, existing.uuid);
+    return "updated";
+  }
+  const created = await Item.create(item as unknown as Record<string, unknown>);
+  log.info("object item created", slug, created?.uuid);
   return "created";
 }
 

@@ -17,7 +17,13 @@ import { ApiError, compareSemver, fetchHealth } from "./api/client.js";
 import { mountStatusIndicator, setStatus } from "./ui/statusIndicator.js";
 import { attachTestConnectionButton, type ProbeResult } from "./ui/testConnection.js";
 import { attachCampaignPicker } from "./ui/campaignPicker.js";
-import { openImportPicker } from "./ui/importPicker.js";
+import {
+  openImportPicker,
+  SCOPE_ACTORS,
+  SCOPE_ITEMS,
+  SCOPE_JOURNAL,
+  type PickerScope,
+} from "./ui/importPicker.js";
 import { explainError } from "./lib/errorHints.js";
 import { log } from "./lib/log.js";
 
@@ -208,19 +214,28 @@ Hooks.on("renderPlayers", () => {
   mountStatusIndicator();
 });
 
-// Add an "Import from dm-assistant" button to the Actors sidebar tab's
-// header. We hook into Foundry's `getActorDirectoryEntryContext` /
-// `renderActorDirectory` — the latter is simpler + fires on every tab
-// render. We append a button to the directory header.
-Hooks.on("renderActorDirectory", (_app: unknown, html: unknown) => {
+// #505 — mount a SCOPED "Import from dm-assistant" button on each
+// Foundry sidebar tab's header, so the picker only offers the kinds
+// that land in that tab:
+//
+//   Actors  → NPC / Creature
+//   Items   → Object
+//   Journal → Shop / Location  (Lore / Faction deferred — #505)
+//
+// `renderXDirectory` fires on every render of that directory; the
+// `.dab-import-btn` guard prevents double-attach on re-renders.
+function mountImportButton(
+  hookLabel: string,
+  html:      unknown,
+  scope:     PickerScope,
+): void {
   const root = (html as HTMLElement & { querySelector?: (s: string) => Element | null });
-  // Don't double-attach on re-renders.
   if (root.querySelector?.(".dab-import-btn")) return;
   const header = root.querySelector?.(".directory-header .action-buttons")
               ?? root.querySelector?.(".directory-header")
               ?? root.querySelector?.("header");
   if (!header) {
-    log.debug("renderActorDirectory: no header found, skipping import button");
+    log.debug(`${hookLabel}: no header found, skipping import button`);
     return;
   }
   const btn = document.createElement("button");
@@ -230,9 +245,19 @@ Hooks.on("renderActorDirectory", (_app: unknown, html: unknown) => {
   btn.style.cssText = "margin: 4px 0; padding: 4px 10px;";
   btn.addEventListener("click", (e) => {
     e.preventDefault();
-    void openImportPicker();
+    void openImportPicker(scope);
   });
   header.appendChild(btn);
+}
+
+Hooks.on("renderActorDirectory", (_app: unknown, html: unknown) => {
+  mountImportButton("renderActorDirectory", html, SCOPE_ACTORS);
+});
+Hooks.on("renderItemDirectory", (_app: unknown, html: unknown) => {
+  mountImportButton("renderItemDirectory", html, SCOPE_ITEMS);
+});
+Hooks.on("renderJournalDirectory", (_app: unknown, html: unknown) => {
+  mountImportButton("renderJournalDirectory", html, SCOPE_JOURNAL);
 });
 
 // Module API exposed under `game.modules.get("dm-assistant-bridge").api`

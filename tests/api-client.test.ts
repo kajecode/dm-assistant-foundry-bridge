@@ -18,6 +18,7 @@ import {
   joinApiPath,
   listCreatures,
   listNpcs,
+  listObjects,
 } from "../src/api/client.js";
 
 describe("compareSemver", () => {
@@ -399,6 +400,50 @@ describe("listNpcs", () => {
     await expect(
       listNpcs({ baseUrl: "http://x", campaignId: "c" }),
     ).rejects.toMatchObject({ kind: "shape" });
+  });
+});
+
+describe("listObjects (#504)", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("hits /object-generate/saved and returns the saved array", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          saved: [
+            { slug: "thorncall-blade", name: "Thorncall Blade", filename: "object_thorncall-blade.md",
+              modified_at: "t", has_image: true, thumb_url: "/t" },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const out = await listObjects({ baseUrl: "http://api/", campaignId: "a b" });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.slug).toBe("thorncall-blade");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/object-generate/saved?campaign_id=a%20b&role=dm",
+      expect.anything(),
+    );
+  });
+
+  it("throws kind=shape when the response is missing `saved` array", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+    await expect(
+      listObjects({ baseUrl: "http://x", campaignId: "c" }),
+    ).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("rejects kind=config on empty campaignId", async () => {
+    await expect(
+      listObjects({ baseUrl: "http://x", campaignId: "" }),
+    ).rejects.toMatchObject({ kind: "config" });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

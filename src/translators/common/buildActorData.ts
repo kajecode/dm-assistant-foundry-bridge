@@ -49,7 +49,8 @@ export type FlagKind =
   | "npc-actor"      | "npc-dm-notes"
   | "creature-actor" | "creature-dm-notes"
   | "shop-journal"
-  | "location-journal";
+  | "location-journal"
+  | "object-item";   // #504 — a registered object imported as a world Item
 
 /** Map a `(entityKind, role)` pair to the flag-kind discriminant.
  *  Only valid pairs:
