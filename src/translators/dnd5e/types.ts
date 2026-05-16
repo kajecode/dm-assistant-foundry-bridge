@@ -39,6 +39,13 @@ export interface StatsType {
   custom?:  string;
 }
 
+/** #503 — dm-a `stats.spellcasting` (contract 0.5.1+). Optional;
+ *  pre-0.5.1 sidecars omit it → treated as a non-caster. */
+export interface StatsSpellcasting {
+  ability: string;   // ""|str|dex|con|int|wis|cha; "" ⇒ non-caster
+  level:   number;   // NPC spellcaster level; 0 ⇒ non-caster
+}
+
 export interface StatsFromPayload {
   ruleset:                    string;
   ac:                         number;
@@ -58,6 +65,7 @@ export interface StatsFromPayload {
   damage_resistances?:        string[];
   damage_vulnerabilities?:    string[];
   condition_immunities?:      string[];
+  spellcasting?:              StatsSpellcasting;   // #503 (contract 0.5.1+)
 }
 
 

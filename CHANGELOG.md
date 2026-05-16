@@ -15,6 +15,22 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.9.0] — 2026-05-16
+
+### Added
+
+- **Spellcaster spellcasting ability + caster level** (dm-assistant#503, bridge half). The dnd5e stat-block translator now maps `stats.spellcasting` (contract 0.5.1+) onto the Actor: `stats.spellcasting.ability` → `system.attributes.spellcasting` (dnd5e v5 NPC spellcasting ability key) and `stats.spellcasting.level` → `system.details.spellLevel` (NPC Spellcaster Level). Spell save DC / attack bonus / slot scaling follow from those on the dnd5e sheet. Completes #503 (the dm-a half shipped in dm-assistant v0.31.0).
+  - Defensive `_fillSpellcasting`: a missing block, unknown ability, half state (ability without level or vice-versa), or non-positive level all collapse to the non-caster sentinel (`""` / `0`) — dnd5e's own "no spellcasting" state, safe to write for everyone. Fractional levels floor.
+
+### Compatibility
+
+- **`min-api-contract-version` stays `0.5.0`** — intentionally. The translation degrades cleanly: against dm-assistant < v0.31.0 (contract 0.5.0, no `spellcasting` field) every actor is treated as a non-caster, exactly the pre-0.9.0 behaviour. Full spellcasting requires dm-assistant **≥ v0.31.0** (contract 0.5.1), but older deployments are not red-chipped for this additive feature.
+
+### Internal
+
+- `StatsFromPayload` gains optional `spellcasting`; `DnD5eSystemFields` gains `attributes.spellcasting` + `details.spellLevel`. 6 new tests (mapping, non-caster default, case-normalisation, unknown-ability rejection, half-state collapse, fractional/negative level). 264/264 pass; typecheck + lint clean.
+
+
 ## [0.8.0] — 2026-05-16
 
 ### Added

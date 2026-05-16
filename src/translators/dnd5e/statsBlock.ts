@@ -25,6 +25,10 @@ export interface DnD5eSystemFields {
     hp:       { value: number; max: number; formula: string };
     movement: { walk: number; fly: number; swim: number; climb: number; burrow: number; units: string };
     senses:   { ranges: { darkvision: number; blindsight: number; tremorsense: number; truesight: number }; units: string };
+    /** #503 — dnd5e v5 NPC spellcasting ability key (`"int"` etc.).
+     *  Empty string ⇒ non-caster (dnd5e's own "no spellcasting"
+     *  sentinel), so writing it is safe for everyone. */
+    spellcasting: string;
   };
   abilities: {
     str: { value: number };
@@ -38,6 +42,9 @@ export interface DnD5eSystemFields {
     cr:        number | string;
     alignment: string;
     type:      { value: string; subtype: string; swarm: string; custom: string };
+    /** #503 — dnd5e v5 NPC "Spellcaster Level"; drives spell save DC /
+     *  attack / slot scaling. 0 ⇒ non-caster. */
+    spellLevel: number;
   };
   traits: {
     size:      string;
@@ -94,6 +101,34 @@ function _fillAbilities(a: StatsAbilities): Required<StatsAbilities> {
 
 function _fillSenses(s: StatsSenses | undefined): Required<StatsSenses> {
   return { ..._SENSES_DEFAULTS, ...(s ?? {}) };
+}
+
+const _SPELL_ABILITIES: ReadonlySet<string> = new Set([
+  "str", "dex", "con", "int", "wis", "cha",
+]);
+
+/**
+ * #503 — resolve `stats.spellcasting` to the dnd5e v5 NPC pair:
+ * `attributes.spellcasting` (ability key) + `details.spellLevel`.
+ *
+ * Defensive: a missing block, an unrecognised ability, or a
+ * non-positive level all collapse to the non-caster state
+ * (`""` / `0`) — dnd5e's own "no spellcasting" sentinel, so writing
+ * it is harmless for the common non-caster case.
+ */
+function _fillSpellcasting(
+  sc: { ability?: string; level?: number } | undefined,
+): { ability: string; level: number } {
+  const rawAbility = (sc?.ability ?? "").trim().toLowerCase();
+  const ability    = _SPELL_ABILITIES.has(rawAbility) ? rawAbility : "";
+  const rawLevel   = Number(sc?.level ?? 0);
+  const level      = Number.isFinite(rawLevel) && rawLevel > 0
+    ? Math.floor(rawLevel)
+    : 0;
+  // A level with no ability (or vice-versa) is incoherent for a
+  // dnd5e caster — treat as non-caster rather than emit a half state.
+  if (!ability || level === 0) return { ability: "", level: 0 };
+  return { ability, level };
 }
 
 /**
@@ -162,6 +197,7 @@ export function buildDnD5eSystemFields(stats: StatsFromPayload): DnD5eSystemFiel
     stats.languages ?? [],
     stats.languages_custom ?? "",
   );
+  const spellcasting = _fillSpellcasting(stats.spellcasting);
 
   return {
     attributes: {
@@ -184,6 +220,7 @@ export function buildDnD5eSystemFields(stats: StatsFromPayload): DnD5eSystemFiel
         },
         units:  senses.units,
       },
+      spellcasting: spellcasting.ability,
     },
     abilities: {
       str: { value: abilities.str },
@@ -202,6 +239,7 @@ export function buildDnD5eSystemFields(stats: StatsFromPayload): DnD5eSystemFiel
         swarm:   "",
         custom:  "",
       },
+      spellLevel: spellcasting.level,
     },
     traits: {
       size:      stats.size,

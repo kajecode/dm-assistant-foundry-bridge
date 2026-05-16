@@ -244,3 +244,66 @@ describe("buildDnD5eSystemFields — ruleset guard", () => {
     expect(() => buildDnD5eSystemFields(bad)).toThrow(/pf2e/);
   });
 });
+
+// ─── buildDnD5eSystemFields — spellcasting (#503) ──────────────────────────
+
+describe("buildDnD5eSystemFields — spellcasting (#503)", () => {
+  it("maps ability + level to attributes.spellcasting + details.spellLevel", () => {
+    const s = buildDnD5eSystemFields({
+      ...minimumStats(),
+      spellcasting: { ability: "int", level: 9 },
+    });
+    expect(s.attributes.spellcasting).toBe("int");
+    expect(s.details.spellLevel).toBe(9);
+  });
+
+  it("non-caster default when spellcasting is absent", () => {
+    const s = buildDnD5eSystemFields(minimumStats());
+    expect(s.attributes.spellcasting).toBe("");
+    expect(s.details.spellLevel).toBe(0);
+  });
+
+  it("explicit non-caster ({'',0}) stays non-caster", () => {
+    const s = buildDnD5eSystemFields({
+      ...minimumStats(),
+      spellcasting: { ability: "", level: 0 },
+    });
+    expect(s.attributes.spellcasting).toBe("");
+    expect(s.details.spellLevel).toBe(0);
+  });
+
+  it("normalises ability case + rejects an unknown ability", () => {
+    const ok = buildDnD5eSystemFields({
+      ...minimumStats(), spellcasting: { ability: "WIS", level: 5 },
+    });
+    expect(ok.attributes.spellcasting).toBe("wis");
+    const bad = buildDnD5eSystemFields({
+      ...minimumStats(), spellcasting: { ability: "luck", level: 5 },
+    });
+    expect(bad.attributes.spellcasting).toBe("");
+    expect(bad.details.spellLevel).toBe(0);   // incoherent → non-caster
+  });
+
+  it("collapses a half state (ability but level 0, or vice-versa)", () => {
+    const a = buildDnD5eSystemFields({
+      ...minimumStats(), spellcasting: { ability: "cha", level: 0 },
+    });
+    expect(a).toMatchObject({ attributes: { spellcasting: "" }, details: { spellLevel: 0 } });
+    const b = buildDnD5eSystemFields({
+      ...minimumStats(), spellcasting: { ability: "", level: 7 },
+    });
+    expect(b).toMatchObject({ attributes: { spellcasting: "" }, details: { spellLevel: 0 } });
+  });
+
+  it("floors a fractional level and ignores negatives", () => {
+    const s = buildDnD5eSystemFields({
+      ...minimumStats(), spellcasting: { ability: "int", level: 6.8 },
+    });
+    expect(s.details.spellLevel).toBe(6);
+    const neg = buildDnD5eSystemFields({
+      ...minimumStats(), spellcasting: { ability: "int", level: -3 },
+    });
+    expect(neg.details.spellLevel).toBe(0);
+    expect(neg.attributes.spellcasting).toBe("");
+  });
+});
