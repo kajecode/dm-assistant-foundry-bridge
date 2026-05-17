@@ -30,6 +30,7 @@ import {
   fetchFaction,
   fetchImageBytes,
   fetchLocation,
+  fetchLore,
   fetchShop,
   type ClientOptions,
 } from "../api/client.js";
@@ -72,7 +73,9 @@ export async function importJournal(opts: ImportJournalOptions): Promise<ImportJ
       ? await fetchShop(fetchArgs)
       : opts.kind === "faction"
         ? await fetchFaction(fetchArgs)
-        : await fetchLocation(fetchArgs);
+        : opts.kind === "lore"
+          ? await fetchLore(fetchArgs)
+          : await fetchLocation(fetchArgs);
 
   const bundle = buildJournalBundle(payload, {
     campaignId:      opts.campaignId,
@@ -86,6 +89,7 @@ export async function importJournal(opts: ImportJournalOptions): Promise<ImportJ
   const imageUrl =
     payload.kind === "shop"     ? payload.establishment_image_url :
     payload.kind === "faction"  ? payload.image_url :
+    payload.kind === "lore"     ? payload.image_url :   // always null — lore is imageless
                                   payload.map_image_url;
 
   let imgPath: string | null = null;

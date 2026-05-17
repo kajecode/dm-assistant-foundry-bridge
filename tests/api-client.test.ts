@@ -16,11 +16,13 @@ import {
   fetchNpc,
   fetchObject,
   fetchFaction,
+  fetchLore,
   joinApiPath,
   listCreatures,
   listNpcs,
   listObjects,
   listFactions,
+  listLore,
 } from "../src/api/client.js";
 
 describe("compareSemver", () => {
@@ -729,6 +731,100 @@ describe("listFactions (#506)", () => {
     fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
     await expect(
       listFactions({ baseUrl: "http://x", campaignId: "c" }),
+    ).rejects.toMatchObject({ kind: "shape" });
+  });
+});
+
+describe("fetchLore (#507)", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ok = () =>
+    new Response(
+      JSON.stringify({
+        slug: "the-tide-below", kind: "lore",
+        name: "The Tide-Below", display_name: "The Tide-Below",
+        image_url: null, thumb_url: null, player_visible: true,
+        front_matter: {}, sections: [{ name: "Overview", body_md: "x" }],
+        dm_sections: [], audit: { source_path: "p", modified_at: "t" },
+      }),
+      { status: 200 },
+    );
+
+  it("hits /foundry/lore/{slug} with role=dm, URL-encoded", async () => {
+    fetchSpy.mockResolvedValueOnce(ok());
+    const r = await fetchLore({ baseUrl: "http://api/", campaignId: "a b", slug: "x/y" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/foundry/lore/x%2Fy?campaign_id=a%20b&role=dm",
+      expect.anything(),
+    );
+    expect(r.kind).toBe("lore");
+    expect(r.player_visible).toBe(true);
+    expect(r.dm_sections).toEqual([]);
+  });
+
+  it("throws kind=shape when kind isn't 'lore'", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ slug: "s", kind: "faction" }), { status: 200 }),
+    );
+    await expect(
+      fetchLore({ baseUrl: "http://x", campaignId: "c", slug: "s" }),
+    ).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("throws kind=http with status on non-2xx", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response("nope", { status: 404 }));
+    await expect(
+      fetchLore({ baseUrl: "http://x", campaignId: "c", slug: "s" }),
+    ).rejects.toMatchObject({ kind: "http", status: 404 });
+  });
+
+  it("rejects kind=config on empty slug", async () => {
+    await expect(
+      fetchLore({ baseUrl: "http://x", campaignId: "c", slug: "" }),
+    ).rejects.toMatchObject({ kind: "config" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("listLore (#507)", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("hits /lore-generate/saved and returns the saved array", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          saved: [
+            { slug: "the-tide-below", name: "The Tide-Below",
+              filename: "lore_the-tide-below.md", modified_at: "t",
+              has_image: false, thumb_url: "" },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const out = await listLore({ baseUrl: "http://api/", campaignId: "c" });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.slug).toBe("the-tide-below");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://api/lore-generate/saved?campaign_id=c&role=dm",
+      expect.anything(),
+    );
+  });
+
+  it("throws kind=shape when 'saved' array is missing", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+    await expect(
+      listLore({ baseUrl: "http://x", campaignId: "c" }),
     ).rejects.toMatchObject({ kind: "shape" });
   });
 });

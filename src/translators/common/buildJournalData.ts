@@ -81,11 +81,18 @@ export function buildJournalBundle(
   const metadataHtml = renderMetadataHeader(payload);
   const pages        = buildPages(payload, metadataHtml);
 
+  // #507 — lore is player-facing world reference: create it
+  // player-READABLE (OBSERVER = 2). Every other journal kind is
+  // GM-only (default 0). Driven off the payload's player_visible
+  // signal so the policy lives server-side.
+  const playerReadable =
+    payload.kind === "lore" && payload.player_visible === true;
+
   return {
     name:      payload.display_name || payload.name || payload.slug,
     img:       null,    // orchestrator overwrites after FilePicker upload
     pages,
-    ownership: { default: 0 },
+    ownership: { default: playerReadable ? 2 : 0 },
     flags: {
       [MODULE_ID]: flags,
     },
@@ -103,6 +110,9 @@ function renderMetadataHeader(payload: FoundryJournalResponse): string {
     appendShopMetadata(payload, lines);
   } else if (payload.kind === "faction") {
     appendFactionMetadata(payload, lines);
+  } else if (payload.kind === "lore") {
+    // Lore has no metadata header — it's pure reference prose, no
+    // region/owner/related badges. Page 1 is just the body.
   } else {
     appendLocationMetadata(payload, lines);
   }

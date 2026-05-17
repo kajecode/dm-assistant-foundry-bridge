@@ -15,6 +15,26 @@ dm-assistant `/foundry/*` endpoint family) via the
 older dm-assistant deployments; flag it explicitly in the entry below.
 
 
+## [0.11.0] — 2026-05-17
+
+### Added
+
+- **Lore import** (dm-assistant#507 — completes the issue end to end; the last #450 close-blocker besides #502). Lore imports as a **player-readable** JournalEntry — the exception to the GM-locked journal pattern:
+  - New `fetchLore()` (`GET /foundry/lore/{slug}`, contract 0.7.0+) + `listLore()` (`/lore-generate/saved`) + `SavedLoreSummary` / `FoundryLoreResponse` types.
+  - `importJournal` lore branch — imageless (no hero-image fetch/upload); lands in a new `<prefix> — Lore` JournalEntry folder; drift idempotent on `{slug,campaign_id,kind:"lore-journal"}`.
+  - **Player-readable ownership**: `buildJournalData` sets `ownership.default = 2` (OBSERVER) for lore, driven by the payload's `player_visible` flag — every other journal kind stays `0` (GM-only). Defends the gate: a `player_visible:false` lore doc falls back to GM-locked rather than leak.
+  - No metadata header for lore (pure reference prose — no region/owner/related badges); no DM page split (`dm_sections` is always `[]` server-side).
+  - The **Journal-tab scoped picker** (#505) now offers **Lore** alongside Shop / Location / Faction. New `FlagKind` `"lore-journal"`; `JournalImportData.ownership` widened to `0 | 2`.
+
+### ⚠️ Compatibility — breaking for older dm-assistant
+
+- **`min-api-contract-version` bumped `0.6.0` → `0.7.0`.** The `/foundry/lore/{slug}` endpoint ships in dm-assistant **v0.33.0**. Like faction (v0.10.0), lore import has **no fallback** — against an older dm-assistant the status indicator goes red and import is disabled. Upgrade dm-assistant to ≥ v0.33.0 before installing this release.
+
+### Internal
+
+- 16 new tests (fetchLore/listLore, lore journal bundle: player-read ownership + no-metadata + flag-kind + the player_visible gate, GM-lock regression guard, lore in the Journal scope). 287/287 pass; typecheck + lint clean.
+
+
 ## [0.10.0] — 2026-05-16
 
 ### Added

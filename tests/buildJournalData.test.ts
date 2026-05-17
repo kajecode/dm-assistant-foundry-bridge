@@ -12,6 +12,7 @@ import { buildJournalBundle, MODULE_ID } from "../src/translators/common/buildJo
 import type {
   FoundryFactionResponse,
   FoundryLocationResponse,
+  FoundryLoreResponse,
   FoundryShopResponse,
 } from "../src/api/types.js";
 
@@ -267,5 +268,66 @@ describe("buildJournalBundle — faction (#506)", () => {
     const bare: FoundryFactionResponse = { ...FACTION, front_matter: {} };
     const bundle = buildJournalBundle(bare, opts);
     expect(bundle.pages[0]!.text.content).not.toContain("<strong>Region:</strong>");
+  });
+});
+
+
+// ── Lore (#507 — player-readable, no DM split, imageless) ───────────────────
+
+const LORE: FoundryLoreResponse = {
+  slug:           "the-tide-below",
+  kind:           "lore",
+  name:           "The Tide-Below",
+  display_name:   "The Tide-Below",
+  image_url:      null,
+  thumb_url:      null,
+  player_visible: true,
+  front_matter:   { type: "lore" },
+  sections: [
+    { name: "Overview",   body_md: "A slow subterranean sea." },
+    { name: "Plot Hooks", body_md: "The fenfolk pay in pearls." },
+  ],
+  dm_sections: [],   // lore has no DM split — server guarantees []
+  audit: {
+    source_path: "data/c/documents/shared/lore_the-tide-below.md",
+    modified_at: "2026-05-16T07:00:00+00:00",
+  },
+};
+
+describe("buildJournalBundle — lore (#507)", () => {
+  const opts = { campaignId: "c", contractVersion: "0.7.0" };
+
+  it("is player-READABLE (ownership default 2 = OBSERVER)", () => {
+    const bundle = buildJournalBundle(LORE, opts);
+    expect(bundle.ownership).toEqual({ default: 2 });
+  });
+
+  it("GM-locked kinds stay ownership 0 (regression guard)", () => {
+    expect(buildJournalBundle(FACTION, opts).ownership).toEqual({ default: 0 });
+    expect(buildJournalBundle(SHOP, opts).ownership).toEqual({ default: 0 });
+  });
+
+  it("one page per section, all public (dm_sections is [])", () => {
+    const bundle = buildJournalBundle(LORE, opts);
+    expect(bundle.pages.map((p) => p.name)).toEqual(["Overview", "Plot Hooks"]);
+  });
+
+  it("no metadata header — Page 1 is just the body prose", () => {
+    const bundle = buildJournalBundle(LORE, opts);
+    const page1  = bundle.pages[0]!.text.content;
+    expect(page1).not.toContain("<strong>Region:</strong>");
+    expect(page1).not.toContain("@UUID[");
+  });
+
+  it("flag-kind discriminant is lore-journal", () => {
+    const bundle = buildJournalBundle(LORE, opts);
+    expect(bundle.flags[MODULE_ID].kind).toBe("lore-journal");
+  });
+
+  it("only lore gets player-read — defends the player_visible gate", () => {
+    const notVisible: FoundryLoreResponse = { ...LORE, player_visible: false };
+    // Belt-and-suspenders: if the server ever sent player_visible:false
+    // for a lore doc, fall back to GM-locked rather than leak.
+    expect(buildJournalBundle(notVisible, opts).ownership).toEqual({ default: 0 });
   });
 });

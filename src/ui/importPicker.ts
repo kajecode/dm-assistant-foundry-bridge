@@ -23,6 +23,7 @@ import type {
   SavedCreatureSummary,
   SavedFactionSummary,
   SavedLocationSummary,
+  SavedLoreSummary,
   SavedNpcSummary,
   SavedObjectSummary,
   SavedShopSummary,
@@ -31,6 +32,7 @@ import {
   listCreatures,
   listFactions,
   listLocations,
+  listLore,
   listNpcs,
   listObjects,
   listShops,
@@ -52,7 +54,7 @@ export type PickerScope = readonly PickerKind[];
 
 export const SCOPE_ACTORS:  PickerScope = ["npc", "creature"];
 export const SCOPE_ITEMS:   PickerScope = ["object"];
-export const SCOPE_JOURNAL: PickerScope = ["shop", "location", "faction"];
+export const SCOPE_JOURNAL: PickerScope = ["shop", "location", "faction", "lore"];
 
 /** Anything the picker shows under a radio. */
 interface PickerRow {
@@ -100,6 +102,11 @@ const KINDS: Record<PickerKind, KindConfig> = {
     label: "Faction",
     empty: "No saved factions found. Generate or disseminate one in dm-assistant first.",
     list:  async (o) => (await listFactions(o)).map(factionToRow),
+  },
+  lore: {
+    label: "Lore",
+    empty: "No saved lore found. Disseminate a lore document in dm-assistant first.",
+    list:  async (o) => (await listLore(o)).map(loreToRow),
   },
 };
 
@@ -178,6 +185,9 @@ function objectToRow(o: SavedObjectSummary): PickerRow {
 }
 function factionToRow(f: SavedFactionSummary): PickerRow {
   return { slug: f.slug, name: f.name, modified_at: f.modified_at };
+}
+function loreToRow(l: SavedLoreSummary): PickerRow {
+  return { slug: l.slug, name: l.name, modified_at: l.modified_at };
 }
 
 function rowHtml(row: PickerRow, kind: PickerKind): string {

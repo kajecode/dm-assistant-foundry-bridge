@@ -84,6 +84,7 @@ const KIND_TO_LABEL: Record<string, string> = {
   "shop:journal":      "Shops",
   "location:journal":  "Locations",
   "faction:journal":   "Factions",
+  "lore:journal":      "Lore",
 };
 
 /** Resolve the configured folder prefix. Empty / whitespace-only
@@ -162,7 +163,7 @@ export async function resolveDmNotesFolderId(entityKind: ActorKind): Promise<str
  * threads the "journal" role through.
  */
 export async function resolveJournalFolderId(
-  entityKind: "shop" | "location" | "faction",
+  entityKind: "shop" | "location" | "faction" | "lore",
 ): Promise<string> {
   return findOrCreateFolder(folderNameFor(entityKind, "journal"), "JournalEntry");
 }

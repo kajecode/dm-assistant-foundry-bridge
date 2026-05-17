@@ -51,6 +51,7 @@ export type FlagKind =
   | "shop-journal"
   | "location-journal"
   | "faction-journal"   // #506 / S10b — faction imported as a JournalEntry
+  | "lore-journal"      // #507 — lore imported as a player-readable JournalEntry
   | "object-item";   // #504 — a registered object imported as a world Item
 
 /** Map a `(entityKind, role)` pair to the flag-kind discriminant.
@@ -66,7 +67,7 @@ export type FlagKind =
  *  Invalid combinations widen to FlagKind via the type assertion;
  *  the orchestrator never constructs the bad pairs. */
 export function flagKindFor(
-  entityKind: ActorKind | "shop" | "location" | "faction",
+  entityKind: ActorKind | "shop" | "location" | "faction" | "lore",
   role:       "actor" | "dm-notes" | "journal",
 ): FlagKind {
   return `${entityKind}-${role}` as FlagKind;
@@ -137,7 +138,10 @@ export type SystemFields = {
 export interface JournalImportData {
   name:       string;
   pages:      JournalPageData[];
-  ownership:  { default: 0 };
+  /** Default ownership: `0` (GM-only) for shop/location/faction;
+   *  `2` (OBSERVER — player-readable) for lore (#507). Foundry's
+   *  CONST.DOCUMENT_OWNERSHIP_LEVELS: NONE=0, OBSERVER=2. */
+  ownership:  { default: 0 | 2 };
   /** Foundry folder ID for kind-aware placement (bridge#24).
    *  DM-notes journals land in a sibling-of-actors folder (e.g.
    *  "<prefix> — NPC DM Notes") so the actor folders stay focused

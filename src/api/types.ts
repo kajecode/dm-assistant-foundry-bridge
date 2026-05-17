@@ -107,7 +107,7 @@ export type FoundryNpcResponse = FoundryActorResponse;
  *  Foundry `JournalEntry` (optionally a Campaign Codex sheet of
  *  the matching CC type). v0.3.0 ships shop + location; faction
  *  lands later. */
-export type JournalKind = "shop" | "location" | "faction";
+export type JournalKind = "shop" | "location" | "faction" | "lore";
 
 /** Item shape from `/shop-generate/saved` — mirrors the
  *  creature-summary shape; shops aren't tied to a single
@@ -170,6 +170,22 @@ export interface SavedFactionSummary {
 
 export interface SavedFactionListResponse {
   saved: SavedFactionSummary[];
+}
+
+/** Item shape from `/lore-generate/saved` (#507). Lore is imageless
+ *  so `has_image` is always false / `thumb_url` always "" — kept for
+ *  saved-* shape parity. */
+export interface SavedLoreSummary {
+  slug:        string;
+  name:        string;
+  filename:    string;
+  modified_at: string;
+  has_image:   boolean;
+  thumb_url:   string;
+}
+
+export interface SavedLoreListResponse {
+  saved: SavedLoreSummary[];
 }
 
 /** `GET /foundry/shop/{slug}` response. Mirrors `FoundryActorResponse`
@@ -239,12 +255,36 @@ export interface FoundryFactionResponse {
   };
 }
 
+/** `GET /foundry/lore/{slug}` response (API contract 0.7.0+, #507).
+ *  The player-facing exception to the journal pattern: read from
+ *  `shared/`, **no DM split** (`dm_sections` always `[]`),
+ *  imageless (`image_url`/`thumb_url` always null), and
+ *  `player_visible: true` — the bridge creates a player-READABLE
+ *  JournalEntry from it (not GM-locked). */
+export interface FoundryLoreResponse {
+  slug:           string;
+  kind:           "lore";
+  name:           string;
+  display_name:   string;
+  image_url:      string | null;   // always null (lore is imageless)
+  thumb_url:      string | null;   // always null
+  player_visible: boolean;         // always true — drives readable ownership
+  front_matter:   Record<string, unknown>;
+  sections:       FoundrySection[];
+  dm_sections:    FoundrySection[]; // always [] — shape parity only
+  audit: {
+    source_path: string;
+    modified_at: string;
+  };
+}
+
 /** Union for code that handles all journal kinds via a single
  *  import flow. */
 export type FoundryJournalResponse =
   | FoundryShopResponse
   | FoundryLocationResponse
-  | FoundryFactionResponse;
+  | FoundryFactionResponse
+  | FoundryLoreResponse;
 
 /** `GET /foundry/object/{slug}` response (API contract 0.5.0+,
  *  dm-assistant#502 v2a). The DM-authored Objects-Library object —
